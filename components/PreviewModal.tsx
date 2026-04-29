@@ -1,6 +1,7 @@
 "use client";
 import { useBuilder } from "@/lib/store";
 import { generateEmailHtml } from "@/lib/htmlGenerator";
+import { useRef } from "react";
 
 /**
  * Sandbox iframe preview. For a full-page preview the TopBar exposes a
@@ -14,8 +15,22 @@ export default function PreviewModal({
   onClose: () => void;
 }) {
   const { doc } = useBuilder();
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const html = generateEmailHtml(doc);
   const width = mode === "mobile" ? 375 : 720;
+
+  const handleIframeLoad = () => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return;
+    const doc = iframe.contentWindow.document;
+    doc.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const anchor = target.closest("a[href]");
+      if (anchor) {
+        event.preventDefault();
+      }
+    });
+  };
 
   return (
     <div
@@ -41,11 +56,13 @@ export default function PreviewModal({
   </div>
 
   <iframe
+    ref={iframeRef}
     srcDoc={html}
     sandbox="allow-same-origin"
     className="flex-1 w-full rounded-b-lg"
     style={{ border: 0 }}
     title="preview"
+    onLoad={handleIframeLoad}
   />
 </div>
     </div>
