@@ -1,5 +1,5 @@
 "use client";
-import { ImageBlock } from "@/lib/types";
+import { ImageBlock, borderToCss } from "@/lib/types";
 import { paddingToCss } from "@/lib/types";
 
 export default function ImageBlockView({ block }: { block: ImageBlock }) {
@@ -16,7 +16,12 @@ export default function ImageBlockView({ block }: { block: ImageBlock }) {
         src={block.src}
         alt={block.alt}
         width={s.width}
-        style={{ display: "inline-block", maxWidth: "100%", border: 0 }}
+        style={{
+          display: "inline-block",
+          maxWidth: "100%",
+          border: borderToCss(s.border) ?? "0",
+          borderRadius: s.borderRadius || undefined,
+        }}
       />
     </div>
   );

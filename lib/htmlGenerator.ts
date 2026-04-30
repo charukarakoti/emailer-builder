@@ -120,11 +120,12 @@ function renderImage(b: ImageBlock): string {
   const s = b.style;
   const imgStyle = inline({
     display: "block",
-    border: "0",
+    border: borderToCss(s.border) || "0",
     outline: "none",
     textDecoration: "none",
     maxWidth: "100%",
     height: "auto",
+    borderRadius: s.borderRadius || undefined,
   });
   const img = `<img src="${escAttr(b.src)}" alt="${escAttr(b.alt)}" width="${escAttr(
     s.width

@@ -40,6 +40,16 @@ export const p = (t: string, r = t, b = t, l = r): Padding => ({
 export const paddingToCss = (p: Padding): string =>
   `${p.top} ${p.right} ${p.bottom} ${p.left}`;
 
+export const stripPx = (value: string): string => {
+  const n = parseFloat(String(value).trim().replace(/px$/i, ""));
+  return Number.isNaN(n) ? "" : String(n);
+};
+
+export const normalizePx = (value: string): string => {
+  const n = parseFloat(String(value).trim().replace(/px$/i, ""));
+  return `${Math.max(0, Number.isNaN(n) ? 0 : n)}px`;
+};
+
 export interface Border {
   width: string; // e.g. "1px" or "0"
   style: "none" | "solid" | "dashed" | "dotted";
@@ -48,8 +58,8 @@ export interface Border {
 
 export const noBorder = (): Border => ({ width: "0", style: "none", color: "#000000" });
 
-export const borderToCss = (b: Border): string | undefined =>
-  b.style === "none" || !b.width || b.width === "0"
+export const borderToCss = (b?: Border): string | undefined =>
+  !b || b.style === "none" || !b.width || b.width === "0"
     ? undefined
     : `${b.width} ${b.style} ${b.color}`;
 
@@ -90,7 +100,13 @@ export interface ImageBlock {
   src: string;
   alt: string;
   href?: string;
-  style: { width: string; align: "left" | "center" | "right"; padding: Padding };
+  style: {
+    width: string;
+    align: "left" | "center" | "right";
+    padding: Padding;
+    border: Border;
+    borderRadius: string;
+  };
 }
 
 export interface ButtonBlock {
@@ -200,7 +216,13 @@ export const newImageBlock = (): ImageBlock => ({
   type: "image",
   src: "https://via.placeholder.com/600x240?text=Your+Image",
   alt: "Image",
-  style: { width: "600", align: "center", padding: p("0") },
+  style: {
+    width: "600",
+    align: "center",
+    padding: p("0"),
+    border: noBorder(),
+    borderRadius: "0px",
+  },
 });
 
 export const newButtonBlock = (): ButtonBlock => ({

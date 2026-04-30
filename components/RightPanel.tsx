@@ -8,7 +8,12 @@ import type {
   ColumnLayout,
   Alignment,
 } from "@/lib/types";
-import { p as mkPadding } from "@/lib/types";
+import {
+  p as mkPadding,
+  normalizePx,
+  stripPx,
+  noBorder,
+} from "@/lib/types";
 
 // -----------------------------------------------------------------------------
 // Tiny primitives
@@ -86,21 +91,23 @@ function PaddingControl({
       </div>
       {mode === "unified" ? (
         <input
+          type="number"
           className={input}
-          placeholder="e.g. 20px"
-          value={value.top}
-          onChange={(e) => onChange(mkPadding(e.target.value || "0"))}
+          placeholder="e.g. 20"
+          value={stripPx(value.top)}
+          onChange={(e) => onChange(mkPadding(normalizePx(e.target.value || "0")))}
         />
       ) : (
         <div className="grid grid-cols-4 gap-1">
           {(["top", "right", "bottom", "left"] as const).map((k) => (
             <input
               key={k}
+              type="number"
               className={input}
               title={k}
               placeholder={k[0].toUpperCase()}
-              value={value[k]}
-              onChange={(e) => set(k, e.target.value)}
+              value={stripPx(value[k])}
+              onChange={(e) => set(k, normalizePx(e.target.value || "0"))}
             />
           ))}
         </div>
@@ -114,22 +121,24 @@ function PaddingControl({
 // -----------------------------------------------------------------------------
 
 function BorderControl({
-  value,
+  value = noBorder(),
   onChange,
 }: {
-  value: Border;
+  value?: Border;
   onChange: (b: Border) => void;
 }) {
+  const borderValue = value ?? noBorder();
   return (
     <div className="mb-3">
       <div className="text-xs text-slate-500 mb-1">Border</div>
       <div className="grid grid-cols-3 gap-1">
         <input
+          type="number"
           className={input}
           placeholder="Width"
-          value={value.width}
+          value={stripPx(borderValue.width)}
           onChange={(e) =>
-            onChange({ ...value, width: e.target.value || "0" })
+            onChange({ ...borderValue, width: normalizePx(e.target.value || "0") })
           }
         />
         <select
@@ -326,9 +335,10 @@ export default function RightPanel() {
         />
         <Field label="Border radius (0–8px, Outlook may ignore)">
           <input
+            type="number"
             className={input}
-            value={doc.meta.borderRadius}
-            onChange={(e) => updateMeta({ borderRadius: e.target.value })}
+            value={stripPx(doc.meta.borderRadius)}
+            onChange={(e) => updateMeta({ borderRadius: normalizePx(e.target.value || "0") })}
           />
         </Field>
       </aside>
@@ -394,13 +404,16 @@ export default function RightPanel() {
             <div className="grid grid-cols-2 gap-2">
               <Field label="Font size">
                 <input
+                  type="number"
                   className={input}
-                  value={block.style.fontSize}
-                  onChange={(e) => setStyle({ fontSize: e.target.value })}
+                  value={stripPx(block.style.fontSize)}
+                  onChange={(e) => setStyle({ fontSize: normalizePx(e.target.value || "0") })}
                 />
               </Field>
               <Field label="Line height">
                 <input
+                  type="number"
+                  step="0.1"
                   className={input}
                   value={block.style.lineHeight}
                   onChange={(e) => setStyle({ lineHeight: e.target.value })}
@@ -518,9 +531,22 @@ export default function RightPanel() {
             </Field>
             <Field label="Width (px, no unit)">
               <input
+                type="number"
                 className={input}
                 value={block.style.width}
                 onChange={(e) => setStyle({ width: e.target.value })}
+              />
+            </Field>
+            <BorderControl
+              value={block.style.border}
+              onChange={(b) => setStyle({ border: b })}
+            />
+            <Field label="Radius">
+              <input
+                type="number"
+                className={input}
+                value={stripPx(block.style.borderRadius)}
+                onChange={(e) => setStyle({ borderRadius: normalizePx(e.target.value || "0") })}
               />
             </Field>
             <Field label="Alignment">
@@ -587,27 +613,38 @@ export default function RightPanel() {
                 />
               </Field>
             </div>
+            <Field label="Button text size">
+              <input
+                type="number"
+                className={input}
+                value={stripPx(block.style.fontSize)}
+                onChange={(e) => setStyle({ fontSize: normalizePx(e.target.value || "0") })}
+              />
+            </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Padding Y">
                 <input
+                  type="number"
                   className={input}
-                  value={block.style.paddingY}
-                  onChange={(e) => setStyle({ paddingY: e.target.value })}
+                  value={stripPx(block.style.paddingY)}
+                  onChange={(e) => setStyle({ paddingY: normalizePx(e.target.value || "0") })}
                 />
               </Field>
               <Field label="Padding X">
                 <input
+                  type="number"
                   className={input}
-                  value={block.style.paddingX}
-                  onChange={(e) => setStyle({ paddingX: e.target.value })}
+                  value={stripPx(block.style.paddingX)}
+                  onChange={(e) => setStyle({ paddingX: normalizePx(e.target.value || "0") })}
                 />
               </Field>
             </div>
             <Field label="Radius (0–8px safe)">
               <input
+                type="number"
                 className={input}
-                value={block.style.borderRadius}
-                onChange={(e) => setStyle({ borderRadius: e.target.value })}
+                value={stripPx(block.style.borderRadius)}
+                onChange={(e) => setStyle({ borderRadius: normalizePx(e.target.value || "0") })}
               />
             </Field>
             <Field label="Alignment">
@@ -640,9 +677,10 @@ export default function RightPanel() {
           <>
             <Field label="Height">
               <input
+                type="number"
                 className={input}
-                value={block.style.height}
-                onChange={(e) => setStyle({ height: e.target.value })}
+                value={stripPx(block.style.height)}
+                onChange={(e) => setStyle({ height: normalizePx(e.target.value || "0") })}
               />
             </Field>
             <Field label="Bg color (optional)">
@@ -664,9 +702,10 @@ export default function RightPanel() {
             <div className="grid grid-cols-2 gap-2">
               <Field label="Thickness">
                 <input
+                  type="number"
                   className={input}
-                  value={block.style.thickness}
-                  onChange={(e) => setStyle({ thickness: e.target.value })}
+                  value={stripPx(block.style.thickness)}
+                  onChange={(e) => setStyle({ thickness: normalizePx(e.target.value || "0") })}
                 />
               </Field>
               <Field label="Color">
@@ -771,9 +810,10 @@ export default function RightPanel() {
       {st.columnLayout !== "1" && (
         <Field label="Gutter">
           <input
+            type="number"
             className={input}
-            value={st.gutter}
-            onChange={(e) => setS({ gutter: e.target.value })}
+            value={stripPx(st.gutter)}
+            onChange={(e) => setS({ gutter: normalizePx(e.target.value || "0") })}
           />
         </Field>
       )}
@@ -798,9 +838,10 @@ export default function RightPanel() {
       <BorderControl value={st.border} onChange={(b) => setS({ border: b })} />
       <Field label="Border radius (0–8px)">
         <input
+          type="number"
           className={input}
-          value={st.borderRadius}
-          onChange={(e) => setS({ borderRadius: e.target.value })}
+          value={stripPx(st.borderRadius)}
+          onChange={(e) => setS({ borderRadius: normalizePx(e.target.value || "0") })}
         />
       </Field>
     </aside>
