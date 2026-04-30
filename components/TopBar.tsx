@@ -12,6 +12,7 @@ import {
   type UserTemplate,
 } from "@/lib/userTemplates";
 import type { EmailDocument } from "@/lib/types";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 /* -------------------------- .eml builder -------------------------- */
 function buildEml(subject: string, html: string): string {
@@ -117,11 +118,11 @@ function SaveTemplateDialog({
 function TemplateManagerDialog({
   userTemplates,
   onClose,
-  onDelete,
+  onDeleteRequest,
 }: {
   userTemplates: UserTemplate[];
   onClose: () => void;
-  onDelete: (id: string, name: string) => void;
+  onDeleteRequest: (id: string, name: string) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center" onClick={onClose}>
@@ -143,7 +144,7 @@ function TemplateManagerDialog({
                   </div>
                 </div>
                 <button
-                  onClick={() => onDelete(t.id, t.name)}
+                  onClick={() => onDeleteRequest(t.id, t.name)}
                   className="text-xs px-2 py-1 border border-red-300 text-red-600 rounded hover:bg-red-50 flex-shrink-0 ml-2"
                 >
                   Delete
@@ -174,6 +175,21 @@ export default function TopBar({
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    variant: "danger" | "primary";
+    action: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmText: "Confirm",
+    variant: "primary",
+    action: () => {},
+  });
 
   useEffect(() => {
     setUserTemplates(loadUserTemplates());
@@ -262,11 +278,23 @@ export default function TopBar({
     }
   };
 
-  const handleDeleteTemplate = (id: string, name: string) => {
-    if (confirm(`Delete template "${name}"?`)) {
-      deleteUserTemplate(id);
-      setRefresh((n) => n + 1);
-    }
+  const handleDeleteTemplateRequest = (id: string, name: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Template",
+      message: `Are you sure you want to delete the template "${name}"? This action cannot be undone.`,
+      confirmText: "Delete",
+      variant: "danger",
+      action: () => {
+        deleteUserTemplate(id);
+        setRefresh((n) => n + 1);
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const closeConfirmDialog = () => {
+    setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
   };
 
   return (
@@ -376,9 +404,19 @@ export default function TopBar({
         <TemplateManagerDialog
           userTemplates={userTemplates}
           onClose={() => setManagerOpen(false)}
-          onDelete={handleDeleteTemplate}
+          onDeleteRequest={handleDeleteTemplateRequest}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        confirmVariant={confirmDialog.variant}
+        onConfirm={confirmDialog.action}
+        onCancel={closeConfirmDialog}
+      />
     </>
   );
 }
