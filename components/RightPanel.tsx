@@ -1,4 +1,6 @@
 "use client";
+import { useState } from "react";
+import PromptDialog from "@/components/PromptDialog";
 import { useBuilder } from "@/lib/store";
 import type {
   Block,
@@ -177,6 +179,14 @@ function RichTextToolbar({
   onChange: (v: string) => void;
   getValue: () => string;
 }) {
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("https://example.com");
+  const [linkSelection, setLinkSelection] = useState<{
+    start: number;
+    end: number;
+    fallback: string;
+  } | null>(null);
+
   const wrap = (pre: string, post: string, fallback = "text") => {
     const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null;
     if (!ta) return;
@@ -194,41 +204,75 @@ function RichTextToolbar({
       );
     });
   };
+
   const insertList = (tag: "ul" | "ol") => {
     const items = "<li>Item one</li><li>Item two</li>";
     wrap(`<${tag}>`, `${items}</${tag}>`, "");
   };
-  const addLink = () => {
-    const url = prompt("Link URL", "https://example.com") || "";
-    if (!url) return;
-    wrap(`<a href="${url}">`, "</a>", "link text");
+
+  const openLinkDialog = () => {
+    const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const value = getValue();
+    const fallback = value.slice(start, end) || "link text";
+    setLinkSelection({ start, end, fallback });
+    setLinkUrl("https://example.com");
+    setLinkDialogOpen(true);
   };
+
+  const confirmLink = () => {
+    if (!linkSelection) return;
+    const value = getValue();
+    const selected = value.slice(linkSelection.start, linkSelection.end) || linkSelection.fallback;
+    const safeUrl = linkUrl.replace(/"/g, "&quot;");
+    const next =
+      value.slice(0, linkSelection.start) +
+      `<a href="${safeUrl}">` +
+      selected +
+      `</a>` +
+      value.slice(linkSelection.end);
+    onChange(next);
+    setLinkDialogOpen(false);
+  };
+
   const btn =
     "text-xs px-2 py-0.5 border rounded bg-white hover:bg-slate-50";
+
   return (
-    <div className="flex flex-wrap gap-1 mb-1">
-      <button className={btn} onClick={() => wrap("<strong>", "</strong>")}>
-        <b>B</b>
-      </button>
-      <button className={btn} onClick={addLink}>
-        🔗 Link
-      </button>
-      <button className={btn} onClick={() => insertList("ul")}>
-        • List
-      </button>
-      <button className={btn} onClick={() => insertList("ol")}>
-        1. List
-      </button>
-      <button className={btn} onClick={() => wrap("<br/>", "", "")}>
-        ↵ BR
-      </button>
-    </div>
+    <>
+      <div className="flex flex-wrap gap-1 mb-1">
+        <button className={btn} onClick={() => wrap("<strong>", "</strong>")}> 
+          <b>B</b>
+        </button>
+        <button className={btn} onClick={openLinkDialog}>
+          🔗 Link
+        </button>
+        <button className={btn} onClick={() => insertList("ul")}>
+          • List
+        </button>
+        <button className={btn} onClick={() => insertList("ol")}>
+          1. List
+        </button>
+        <button className={btn} onClick={() => wrap("<br/>", "", "")}> 
+          ↵ BR
+        </button>
+      </div>
+      <PromptDialog
+        isOpen={linkDialogOpen}
+        title="Insert link"
+        label="URL"
+        value={linkUrl}
+        placeholder="https://example.com"
+        confirmText="Insert"
+        onChange={setLinkUrl}
+        onConfirm={confirmLink}
+        onCancel={() => setLinkDialogOpen(false)}
+      />
+    </>
   );
 }
-
-// -----------------------------------------------------------------------------
-// Panel root
-// -----------------------------------------------------------------------------
 
 export default function RightPanel() {
   const {
@@ -834,6 +878,22 @@ export default function RightPanel() {
         onChange={(p) => setS({ padding: p })}
         onModeChange={(m) => setS({ paddingMode: m })}
       />
+
+      <Field label="Vertical align">
+        <div className="flex gap-1">
+          {(["top", "middle", "bottom"] as const).map((a) => (
+            <button
+              key={a}
+              onClick={() => setS({ verticalAlign: a })}
+              className={`flex-1 text-xs border rounded py-1 capitalize ${
+                st.verticalAlign === a ? "bg-blue-500 text-white" : ""
+              }`}
+            >
+              {a}
+            </button>
+          ))}
+        </div>
+      </Field>
 
       <BorderControl value={st.border} onChange={(b) => setS({ border: b })} />
       <Field label="Border radius (0–8px)">

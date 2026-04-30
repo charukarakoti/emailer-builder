@@ -140,11 +140,13 @@ function ColumnView({
   columnIndex,
   col,
   width,
+  verticalAlign = "top",
 }: {
   sectionId: string;
   columnIndex: number;
   col: Column;
   width: string;
+  verticalAlign?: "top" | "middle" | "bottom";
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col-drop-${sectionId}-${columnIndex}`,
@@ -153,8 +155,8 @@ function ColumnView({
   return (
     <div
       ref={setNodeRef}
-      style={{ width, verticalAlign: "top" }}
-      className={`inline-block align-top relative transition-colors ${
+      style={{ width, verticalAlign }}
+      className={`inline-block relative transition-colors ${
         isOver
           ? "bg-blue-100 outline-dashed outline-[3px] outline-blue-500 ring-2 ring-blue-200"
           : ""
@@ -276,6 +278,7 @@ function SortableSection({
             columnIndex={ci}
             col={col}
             width={widths[ci]}
+            verticalAlign={s.verticalAlign || "top"}
           />
         ))}
       </div>

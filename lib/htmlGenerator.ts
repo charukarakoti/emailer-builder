@@ -321,21 +321,26 @@ function renderSection(sec: Section, contentWidth: number): string {
 
   const innerWidth =
     contentWidth - parsePx(s.padding.left) - parsePx(s.padding.right);
+  const sectionVAlign = s.verticalAlign || "top";
 
   let inner: string;
   if (s.columnLayout === "1") {
-    inner = renderColumnInner(sec.columns[0] || { blocks: [] });
+    inner =
+      `<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">` +
+      `<tr><td valign="${sectionVAlign}" style="padding:0;">${renderColumnInner(
+        sec.columns[0] || { blocks: [] }
+      )}</td></tr></table>`;
   } else {
     const widths = columnWidths(s.columnLayout, innerWidth);
     const n = widths.length;
     const g = parsePx(s.gutter);
     const tdInner = (i: number) =>
-      inline({ padding: colPad(i, n, g), verticalAlign: "top" });
+      inline({ padding: colPad(i, n, g), verticalAlign: sectionVAlign });
 
     const parts: string[] = [];
     // Outlook scaffold: open outer table, <tr>, and the FIRST <td>.
     parts.push(
-      `<!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="${innerWidth}"><tr><td width="${widths[0]}" valign="top" style="${tdInner(
+      `<!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="${innerWidth}"><tr><td width="${widths[0]}" valign="${sectionVAlign}" style="${tdInner(
         0
       )}"><![endif]-->`
     );
@@ -344,14 +349,14 @@ function renderSection(sec: Section, contentWidth: number): string {
       const col = sec.columns[i] || { blocks: [] };
       // Non-Outlook: align="left" pixel-width table per column
       parts.push(
-        `<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="left" width="${widths[i]}" style="width:${widths[i]}px;max-width:100%;border-collapse:collapse;"><tr><td valign="top" style="${tdInner(
+        `<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="left" width="${widths[i]}" style="width:${widths[i]}px;max-width:100%;border-collapse:collapse;"><tr><td valign="${sectionVAlign}" style="${tdInner(
           i
         )}">${renderColumnInner(col)}</td></tr></table>`
       );
       // Outlook: close current td + open next td, or close the whole table.
       if (i < n - 1) {
         parts.push(
-          `<!--[if mso | IE]></td><td width="${widths[i + 1]}" valign="top" style="${tdInner(
+          `<!--[if mso | IE]></td><td width="${widths[i + 1]}" valign="${sectionVAlign}" style="${tdInner(
             i + 1
           )}"><![endif]-->`
         );

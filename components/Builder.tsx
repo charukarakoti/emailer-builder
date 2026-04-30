@@ -6,6 +6,7 @@ import LeftPanel from "./LeftPanel";
 import RightPanel from "./RightPanel";
 import PreviewModal from "./PreviewModal";
 import BuilderDndProvider from "./BuilderDndProvider";
+import NotificationProvider from "./NotificationProvider";
 import { useBuilder } from "@/lib/store";
 import { useAutoSave, loadState } from "@/lib/autosave";
 
@@ -53,25 +54,27 @@ export default function Builder() {
   }, [undo, redo]);
 
   return (
-    <div className="flex flex-col h-screen">
-      <TopBar onPreview={setPreview} />
-      {/*
-        BuilderDndProvider wraps LeftPanel + Canvas + RightPanel so the
-        palette draggables (in LeftPanel) share a single DndContext with
-        the column droppables and block sortables (in Canvas). Without
-        this lift, palette items have no DndContext ancestor and
-        silently no-op.
-      */}
-      <BuilderDndProvider>
-        <div className="flex flex-1 overflow-hidden">
-          <LeftPanel />
-          <Canvas />
-          <RightPanel />
-        </div>
-      </BuilderDndProvider>
-      {preview && (
-        <PreviewModal mode={preview} onClose={() => setPreview(null)} />
-      )}
-    </div>
+    <NotificationProvider>
+      <div className="flex flex-col h-screen">
+        <TopBar onPreview={setPreview} />
+        {/*
+          BuilderDndProvider wraps LeftPanel + Canvas + RightPanel so the
+          palette draggables (in LeftPanel) share a single DndContext with
+          the column droppables and block sortables (in Canvas). Without
+          this lift, palette items have no DndContext ancestor and
+          silently no-op.
+        */}
+        <BuilderDndProvider>
+          <div className="flex flex-1 overflow-hidden">
+            <LeftPanel />
+            <Canvas />
+            <RightPanel />
+          </div>
+        </BuilderDndProvider>
+        {preview && (
+          <PreviewModal mode={preview} onClose={() => setPreview(null)} />
+        )}
+      </div>
+    </NotificationProvider>
   );
 }

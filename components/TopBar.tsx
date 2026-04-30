@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useNotifications } from "@/components/NotificationProvider";
 import { useBuilder } from "@/lib/store";
 import { generateEmailHtml } from "@/lib/htmlGenerator";
 import { templates } from "@/lib/templates";
@@ -171,6 +172,7 @@ export default function TopBar({
   onPreview: (m: "desktop" | "mobile") => void;
 }) {
   const { doc, undo, redo, setDoc } = useBuilder();
+  const { notify } = useNotifications();
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
@@ -206,6 +208,7 @@ export default function TopBar({
     a.download = `${(doc.meta.subject || "email").replace(/\s+/g, "-")}.html`;
     a.click();
     URL.revokeObjectURL(url);
+    notify("HTML export ready", "success");
   };
 
   const handleExportEml = () => {
@@ -218,11 +221,16 @@ export default function TopBar({
     a.download = `${(doc.meta.subject || "email").replace(/\s+/g, "-")}.eml`;
     a.click();
     URL.revokeObjectURL(url);
+    notify("Outlook export ready", "success");
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(buildHtml());
-    alert("HTML copied");
+    try {
+      await navigator.clipboard.writeText(buildHtml());
+      notify("HTML copied", "success");
+    } catch {
+      notify("Unable to copy HTML", "error");
+    }
   };
 
   const handleCopyForOutlook = async () => {
@@ -233,8 +241,14 @@ export default function TopBar({
       await navigator.clipboard.write([
         new ClipboardItem({ "text/html": blob, "text/plain": plain }),
       ]);
+      notify("HTML copied for Outlook", "success");
     } catch {
-      await navigator.clipboard.writeText(html);
+      try {
+        await navigator.clipboard.writeText(html);
+        notify("HTML copied", "success");
+      } catch {
+        notify("Unable to copy HTML", "error");
+      }
     }
   };
 
@@ -243,6 +257,7 @@ export default function TopBar({
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
+    notify("Preview opened in a new tab", "info");
   };
 
   const handleSaveAsTemplate = () => setSaveDialogOpen(true);
@@ -252,9 +267,11 @@ export default function TopBar({
       const existing = userTemplates.find((t) => t.name === name);
       if (existing) {
         updateUserTemplate(existing.id, name, doc);
+        notify(`Template \"${name}\" overwritten`, "success");
       }
     } else {
       saveUserTemplate(name, doc);
+      notify(`Template \"${name}\" saved`, "success");
     }
     setRefresh((n) => n + 1);
     setSaveDialogOpen(false);
@@ -288,6 +305,7 @@ export default function TopBar({
       action: () => {
         deleteUserTemplate(id);
         setRefresh((n) => n + 1);
+        notify(`Template \"${name}\" deleted`, "success");
         setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
       },
     });

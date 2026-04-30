@@ -168,6 +168,7 @@ export interface Section {
     gutter: string;
     border: Border;                 // section-level border
     borderRadius: string;           // 0–8px safe
+    verticalAlign: "top" | "middle" | "bottom";
   };
   columns: Column[];
 }
@@ -274,6 +275,7 @@ export const newSection = (layout: ColumnLayout = "1"): Section => {
       gutter: "10px",
       border: noBorder(),
       borderRadius: "0",
+      verticalAlign: "top",
     },
     columns: Array.from({ length: n }, () => ({ blocks: [newTextBlock()] })),
   };

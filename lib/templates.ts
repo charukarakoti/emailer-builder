@@ -34,6 +34,7 @@ export const templates: { name: string; doc: EmailDocument }[] = [
             gutter: "10px",
             border: noBorder(),
             borderRadius: "0",
+            verticalAlign: "top",
           },
           columns: [
             {
@@ -68,6 +69,7 @@ export const templates: { name: string; doc: EmailDocument }[] = [
             gutter: "10px",
             border: noBorder(),
             borderRadius: "0",
+            verticalAlign: "top",
           },
           columns: [
             {
@@ -135,6 +137,7 @@ export const templates: { name: string; doc: EmailDocument }[] = [
             gutter: "10px",
             border: noBorder(),
             borderRadius: "0",
+            verticalAlign: "top",
           },
           columns: [
             {
@@ -191,6 +194,7 @@ export const templates: { name: string; doc: EmailDocument }[] = [
             gutter: "16px",
             border: noBorder(),
             borderRadius: "0",
+            verticalAlign: "top",
           },
           columns: [
             {
