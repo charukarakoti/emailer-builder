@@ -165,6 +165,168 @@ function TemplateManagerDialog({
   );
 }
 
+/* -------------------- Send Email Dialog -------------------- */
+// Compose-and-send for the current canvas. Recipients are comma- or
+// newline-separated emails; each is sent as its own SMTP message via
+// /api/send. Errors per recipient are listed back in the dialog so the user
+// can fix bad addresses without losing the rest of the send.
+function SendEmailDialog({
+  doc,
+  onClose,
+  onSent,
+  onError,
+}: {
+  doc: EmailDocument;
+  onClose: () => void;
+  onSent: (msg: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const [to, setTo] = useState("");
+  const [subject, setSubject] = useState(doc.meta?.subject || "");
+  const [fromName, setFromName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<{ email: string; error: string }[]>([]);
+
+  function parseRecipients(raw: string): string[] {
+    return raw
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
+  async function send() {
+    const recipients = parseRecipients(to);
+    if (recipients.length === 0) {
+      onError("Add at least one recipient");
+      return;
+    }
+    setBusy(true);
+    setFailed([]);
+    try {
+      const r = await fetch("/api/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          to: recipients,
+          subject: subject || undefined,
+          doc,
+          fromName: fromName || undefined,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        onError(data?.error || "Send failed");
+        return;
+      }
+      const sent: string[] = data.sent || [];
+      const fail: { email: string; error: string }[] = data.failed || [];
+      setFailed(fail);
+      if (sent.length && !fail.length) {
+        onSent(
+          `Sent to ${sent.length} recipient${sent.length === 1 ? "" : "s"}.`
+        );
+      } else if (sent.length && fail.length) {
+        onError(
+          `Sent to ${sent.length}, but ${fail.length} failed — see list below.`
+        );
+      } else {
+        onError("All sends failed — see list below.");
+      }
+    } catch (e: any) {
+      onError(e?.message || "Network error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl p-5 w-full max-w-md"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-semibold text-lg mb-1">Send email</div>
+        <div className="text-xs text-slate-500 mb-4">
+          Delivers the current canvas through your SMTP credentials in{" "}
+          <code>.env</code>. One message per recipient.
+        </div>
+
+        <label className="block text-sm mb-3">
+          <span className="block text-slate-700 mb-1">
+            To <span className="text-slate-400">(comma- or newline-separated)</span>
+          </span>
+          <textarea
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            rows={3}
+            placeholder="alice@example.com, bob@example.com"
+            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </label>
+
+        <label className="block text-sm mb-3">
+          <span className="block text-slate-700 mb-1">Subject</span>
+          <input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder={doc.meta?.subject || "Subject line"}
+            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </label>
+
+        <label className="block text-sm mb-4">
+          <span className="block text-slate-700 mb-1">
+            From name <span className="text-slate-400">(optional)</span>
+          </span>
+          <input
+            value={fromName}
+            onChange={(e) => setFromName(e.target.value)}
+            placeholder="Acme Updates"
+            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <span className="text-xs text-slate-500 mt-1 block">
+            The email address is fixed to your SMTP_FROM; only the display
+            name can change here (most providers require a verified address).
+          </span>
+        </label>
+
+        {failed.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded p-2 mb-3 text-xs text-red-800">
+            <div className="font-semibold mb-1">Failed deliveries:</div>
+            <ul className="space-y-0.5">
+              {failed.map((f, i) => (
+                <li key={i}>
+                  <span className="font-mono">{f.email}</span> — {f.error}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="border px-3 py-1 rounded hover:bg-slate-50 text-sm disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={send}
+            disabled={busy || !to.trim()}
+            className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 text-sm disabled:opacity-50"
+          >
+            {busy ? "Sending…" : "Send"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------ TopBar ----------------------------- */
 export default function TopBar({
   onPreview,
@@ -176,6 +338,9 @@ export default function TopBar({
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
+  // Send-email dialog state. The dialog calls POST /api/send with the
+  // current canvas doc and a comma-separated recipient list.
+  const [sendOpen, setSendOpen] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -193,8 +358,19 @@ export default function TopBar({
     action: () => {},
   });
 
+  // userTemplates now live in Postgres (see lib/userTemplates.ts).
+  // The list is reloaded whenever `refresh` ticks. If the user isn't signed
+  // in (or the fetch fails) we just get an empty array — middleware should
+  // have already bounced them to /login.
   useEffect(() => {
-    setUserTemplates(loadUserTemplates());
+    let cancelled = false;
+    (async () => {
+      const list = await loadUserTemplates();
+      if (!cancelled) setUserTemplates(list);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   const buildHtml = () => generateEmailHtml(doc);
@@ -262,19 +438,24 @@ export default function TopBar({
 
   const handleSaveAsTemplate = () => setSaveDialogOpen(true);
 
-  const handleSaveConfirm = (name: string, overwrite: boolean) => {
-    if (overwrite) {
-      const existing = userTemplates.find((t) => t.name === name);
-      if (existing) {
-        updateUserTemplate(existing.id, name, doc);
-        notify(`Template \"${name}\" overwritten`, "success");
+  const handleSaveConfirm = async (name: string, overwrite: boolean) => {
+    try {
+      if (overwrite) {
+        const existing = userTemplates.find((t) => t.name === name);
+        if (existing) {
+          await updateUserTemplate(existing.id, name, doc);
+          notify(`Template \"${name}\" overwritten`, "success");
+        }
+      } else {
+        await saveUserTemplate(name, doc);
+        notify(`Template \"${name}\" saved`, "success");
       }
-    } else {
-      saveUserTemplate(name, doc);
-      notify(`Template \"${name}\" saved`, "success");
+      setRefresh((n) => n + 1);
+    } catch (err: any) {
+      notify(err?.message || "Failed to save template", "error");
+    } finally {
+      setSaveDialogOpen(false);
     }
-    setRefresh((n) => n + 1);
-    setSaveDialogOpen(false);
   };
 
   const handleSelectTemplate = (value: string) => {
@@ -302,11 +483,16 @@ export default function TopBar({
       message: `Are you sure you want to delete the template "${name}"? This action cannot be undone.`,
       confirmText: "Delete",
       variant: "danger",
-      action: () => {
-        deleteUserTemplate(id);
-        setRefresh((n) => n + 1);
-        notify(`Template \"${name}\" deleted`, "success");
-        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      action: async () => {
+        try {
+          await deleteUserTemplate(id);
+          setRefresh((n) => n + 1);
+          notify(`Template \"${name}\" deleted`, "success");
+        } catch (err: any) {
+          notify(err?.message || "Failed to delete template", "error");
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        }
       },
     });
   };
@@ -317,94 +503,149 @@ export default function TopBar({
 
   return (
     <>
-      {/* ✅ FIXED HEADER */}
-      <div className="h-14 border-b bg-white">
-        <div className="w-full overflow-x-auto">
-          <div className="flex items-center px-4 gap-3 whitespace-nowrap min-w-max pt-2">
+      {/* =====================================================================
+          Responsive sticky header.
+          • Sticks to the top of the viewport (sticky + z-30) so the toolbar
+            stays visible while scrolling the canvas.
+          • Two button groups wrap independently with `flex-wrap`. On wide
+            screens they sit on one row; on narrow screens the right-hand
+            export/send/auth group drops to a second row instead of forcing
+            a horizontal scrollbar.
+          • Buttons can shrink — `flex-wrap` does the heavy lifting; no
+            forced `whitespace-nowrap` or `min-w-max` anywhere.
+          ===================================================================== */}
+      <div className="sticky top-0 z-30 border-b bg-white">
+        <div className="flex flex-wrap items-center gap-2 gap-y-2 px-3 sm:px-4 py-2">
+          {/* Brand */}
+          <div className="font-semibold whitespace-nowrap mr-2">
+            📧 Email Builder <span className="hidden sm:inline">v3.3</span>
+          </div>
 
-            <div className="font-semibold">📧 Email Builder v3.3</div>
-
-            <div className="ml-6 flex gap-2 flex-none">
-              <select
-                className="text-sm border rounded px-2 py-1 bg-white"
-                onChange={(e) => handleSelectTemplate(e.target.value)}
-                defaultValue=""
-              >
-                <option value="">Templates…</option>
-                {templates.length > 0 && (
-                  <optgroup label="Built-in">
-                    {templates.map((t) => (
-                      <option key={t.name}>{t.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {userTemplates.length > 0 && (
-                  <optgroup label="Saved Templates">
-                    {userTemplates.map((t) => (
-                      <option key={t.id}>{t.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-
-              <button
-                onClick={handleSaveAsTemplate}
-                className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 text-sm"
-              >
-                + New template
-              </button>
-
-              {userTemplates.length > 0 && (
-                <button
-                  onClick={() => setManagerOpen(true)}
-                  className="text-sm border px-2 py-1 rounded hover:bg-slate-100"
-                  title="Manage saved templates"
-                >
-                  📋 Manage
-                </button>
+          {/* Left group — template + edit actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="text-sm border rounded px-2 py-1 bg-white max-w-[180px]"
+              onChange={(e) => handleSelectTemplate(e.target.value)}
+              defaultValue=""
+            >
+              <option value="">Templates…</option>
+              {templates.length > 0 && (
+                <optgroup label="Built-in">
+                  {templates.map((t) => (
+                    <option key={t.name}>{t.name}</option>
+                  ))}
+                </optgroup>
               )}
+              {userTemplates.length > 0 && (
+                <optgroup label="Saved Templates">
+                  {userTemplates.map((t) => (
+                    <option key={t.id}>{t.name}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
 
+            <button
+              onClick={handleSaveAsTemplate}
+              className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 text-sm whitespace-nowrap"
+            >
+              + New template
+            </button>
+
+            {userTemplates.length > 0 && (
               <button
-                onClick={undo}
-                className="border px-2 py-1 rounded hover:bg-slate-100 text-sm"
-                title="Undo (Cmd+Z)"
+                onClick={() => setManagerOpen(true)}
+                className="text-sm border px-2 py-1 rounded hover:bg-slate-100 whitespace-nowrap"
+                title="Manage saved templates"
               >
-                ↶ Undo
+                📋 Manage
               </button>
+            )}
 
-              <button
-                onClick={redo}
-                className="border px-2 py-1 rounded hover:bg-slate-100 text-sm"
-                title="Redo (Cmd+Shift+Z)"
-              >
-                ↷ Redo
-              </button>
-            </div>
+            <button
+              onClick={undo}
+              className="border px-2 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
+              title="Undo (Cmd+Z)"
+            >
+              ↶ Undo
+            </button>
 
-            <div className="ml-auto flex gap-2 flex-none">
-              <button onClick={() => onPreview("desktop")} className="border px-3 py-1 rounded hover:bg-slate-100 text-sm">
-                Desktop
-              </button>
-              <button onClick={() => onPreview("mobile")} className="border px-3 py-1 rounded hover:bg-slate-100 text-sm">
-                Mobile
-              </button>
-              <button onClick={handleOpenInTab} className="border px-3 py-1 rounded hover:bg-slate-100 text-sm">
-                New tab
-              </button>
-              <button onClick={handleExportEml} className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm">
-                Outlook (.eml)
-              </button>
-              <button onClick={handleCopyForOutlook} className="border px-3 py-1 rounded hover:bg-slate-100 text-sm">
-                Copy for Outlook
-              </button>
-              <button onClick={handleCopy} className="border px-3 py-1 rounded hover:bg-slate-100 text-sm">
-                Copy source
-              </button>
-              <button onClick={handleExport} className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 text-sm">
-                Export HTML
-              </button>
-            </div>
+            <button
+              onClick={redo}
+              className="border px-2 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
+              title="Redo (Cmd+Shift+Z)"
+            >
+              ↷ Redo
+            </button>
+          </div>
 
+          {/* Right group — preview / export / send / auth. `ml-auto` pushes
+              this block to the far right on one-row layouts; on wrap it
+              naturally flows to the next line at the left margin. */}
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <button
+              onClick={() => onPreview("desktop")}
+              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
+            >
+              Desktop
+            </button>
+            <button
+              onClick={() => onPreview("mobile")}
+              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
+            >
+              Mobile
+            </button>
+            <button
+              onClick={handleOpenInTab}
+              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
+            >
+              New tab
+            </button>
+            <button
+              onClick={handleExportEml}
+              className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm whitespace-nowrap"
+            >
+              Outlook (.eml)
+            </button>
+            <button
+              onClick={handleCopyForOutlook}
+              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
+            >
+              Copy for Outlook
+            </button>
+            <button
+              onClick={handleCopy}
+              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
+            >
+              Copy source
+            </button>
+            <button
+              onClick={handleExport}
+              className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 text-sm whitespace-nowrap"
+            >
+              Export HTML
+            </button>
+            {/* Send — opens the SendEmailDialog. POST /api/send delivers the
+                rendered HTML via SMTP (configured in .env). */}
+            <button
+              onClick={() => setSendOpen(true)}
+              className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 text-sm whitespace-nowrap"
+              title="Send the current canvas to one or more email addresses"
+            >
+              Send email
+            </button>
+            {/* Sign-out — clears the session cookie on the server and
+                redirects to /login. */}
+            <button
+              onClick={async () => {
+                await fetch("/api/auth/logout", { method: "POST" });
+                window.location.href = "/login";
+              }}
+              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm text-slate-700 whitespace-nowrap"
+              title="Sign out"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </div>
@@ -423,6 +664,18 @@ export default function TopBar({
           userTemplates={userTemplates}
           onClose={() => setManagerOpen(false)}
           onDeleteRequest={handleDeleteTemplateRequest}
+        />
+      )}
+
+      {sendOpen && (
+        <SendEmailDialog
+          doc={doc}
+          onClose={() => setSendOpen(false)}
+          onSent={(msg) => {
+            setSendOpen(false);
+            notify(msg, "success");
+          }}
+          onError={(msg) => notify(msg, "error")}
         />
       )}
 

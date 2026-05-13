@@ -71,8 +71,44 @@ The exhaustive switches in `renderBlockView` and `renderBlock` mean TypeScript w
 
 ```bash
 npm install
+cp .env.example .env             # fill in DATABASE_URL
+npx prisma migrate dev --name init
 npm run dev
 ```
+
+Open http://localhost:3000. You'll land on `/login` — click "Create one" to sign up. A personal workspace is created for you on first signup.
+
+### Sharing templates across users (team workspaces)
+
+Templates are stored in Postgres, scoped to a **team workspace**. Anyone in the same workspace can see and clone every template; only the original author can edit or delete the templates they created.
+
+To share with a teammate:
+
+1. Visit `/team` and click **Create invite**. Copy the generated link.
+2. Send the link to your teammate. When they sign up (or sign in and paste the invite code), they're added to your workspace.
+3. Templates everyone saves now show up in the **Saved Templates** dropdown for everyone in the team.
+
+Owners can create invites; members can join existing teams or create their own. Each user can belong to multiple teams and switch between them on the `/team` page.
+
+### Database setup
+
+The project uses **Postgres** via Prisma. Quick paths:
+
+- **Local Postgres** — install Postgres, create a database, set `DATABASE_URL` to the local connection string. Run `npx prisma migrate dev`.
+- **Hosted (Neon, Railway, Supabase, RDS, etc.)** — create a database, copy its connection string into `DATABASE_URL`, and run `npx prisma migrate deploy` in production.
+
+Useful scripts:
+
+```bash
+npm run prisma:generate    # regenerate the Prisma client after schema changes
+npm run prisma:migrate     # create a new migration in dev
+npm run prisma:deploy      # apply migrations in production
+npm run prisma:studio      # open the Prisma Studio UI
+```
+
+### Auth model
+
+Email + password sign-in. Sessions live in the `Session` table; the cookie carries an opaque token, and only its SHA-256 hash is stored at rest. Middleware (`middleware.ts`) bounces anonymous visitors to `/login` for everything except `/login`, `/signup`, and `/api/auth/*`.
 
 Open http://localhost:3000.
 

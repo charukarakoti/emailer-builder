@@ -1,0 +1,44 @@
+// =============================================================================
+// middleware.ts — gate everything except /login, /signup, and /api/auth/*.
+//
+// We only check the presence of the session cookie here. The actual
+// validation happens in API routes via getCurrentSession() — that's what
+// catches expired/revoked sessions. This middleware just keeps anonymous
+// users from landing on the builder UI before they sign in.
+// =============================================================================
+
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+const SESSION_COOKIE = "eb_session";
+const PUBLIC_PATHS = ["/login", "/signup"];
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  const hasSession = !!req.cookies.get(SESSION_COOKIE)?.value;
+
+  // Public assets / Next internals / public pages.
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/api/auth") ||
+    PUBLIC_PATHS.includes(pathname)
+  ) {
+    // If already signed in and visiting /login or /signup, bounce home.
+    if (hasSession && PUBLIC_PATHS.includes(pathname)) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
+    return NextResponse.next();
+  }
+
+  if (!hasSession) {
+    const url = new URL("/login", req.url);
+    url.searchParams.set("next", pathname);
+    return NextResponse.redirect(url);
+  }
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
