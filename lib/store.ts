@@ -33,6 +33,8 @@ interface BuilderState extends Selection {
   updateSectionStyle: (id: string, patch: Partial<Section["style"]>) => void;
   moveSection: (from: number, to: number) => void;
   changeColumnLayout: (id: string, layout: ColumnLayout) => void;
+  /** Manually override column widths (percentages, sum to ~100). */
+  setColumnWidths: (sectionId: string, widths: number[]) => void;
 
   addBlock: (sectionId: string, columnIndex: number, type: BlockType) => void;
   removeBlock: (sectionId: string, columnIndex: number, blockId: string) => void;
@@ -165,11 +167,17 @@ export const useBuilder = create<BuilderState>((set) => ({
           const target = columnCountFor(layout);
 
           // Collapse-to-1: merge every column's blocks into the first.
+          // Changing column count always invalidates any manually-set
+          // column widths — drop them so the new layout uses its defaults.
           if (target === 1) {
             const merged = s.columns.flatMap((c) => c?.blocks || []);
             return {
               ...s,
-              style: { ...s.style, columnLayout: layout },
+              style: {
+                ...s.style,
+                columnLayout: layout,
+                columnWidths: undefined,
+              },
               columns: [{ blocks: merged }],
             };
           }
@@ -189,8 +197,36 @@ export const useBuilder = create<BuilderState>((set) => ({
           }
           return {
             ...s,
-            style: { ...s.style, columnLayout: layout },
+            style: {
+              ...s.style,
+              columnLayout: layout,
+              columnWidths: undefined, // reset custom widths on layout change
+            },
             columns: existing,
+          };
+        }),
+      },
+    })),
+
+  // Manually set column widths for a section. Widths is an array of
+  // percentages (sums to 100) — one entry per column. We clamp to a 5%
+  // floor so a column can't be dragged smaller than that.
+  setColumnWidths: (sectionId, widths) =>
+    set((st) => ({
+      ...pushHistory(st),
+      doc: {
+        ...st.doc,
+        sections: st.doc.sections.map((s) => {
+          if (s.id !== sectionId) return s;
+          const n = s.columns.length;
+          if (widths.length !== n) return s;
+          // Floor at 5%, then normalise so total = 100.
+          const floored = widths.map((w) => Math.max(5, w));
+          const sum = floored.reduce((a, b) => a + b, 0);
+          const norm = floored.map((w) => +(w * (100 / sum)).toFixed(4));
+          return {
+            ...s,
+            style: { ...s.style, columnWidths: norm },
           };
         }),
       },

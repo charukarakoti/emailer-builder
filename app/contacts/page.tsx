@@ -11,6 +11,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AppShell, {
+  GhostButton,
+  PrimaryButton,
+} from "@/components/AppShell";
 
 interface ContactRow {
   id: string;
@@ -120,33 +124,37 @@ export default function ContactsPage() {
   const empty = contacts.length === 0 && !loading;
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6">
-      <div className="max-w-5xl mx-auto space-y-4">
-        <header className="flex items-center justify-between">
-          <div>
-            <Link href="/" className="text-sm text-blue-600 hover:underline">
-              ← Back to builder
-            </Link>
-            <h1 className="text-2xl font-semibold mt-1">Contacts</h1>
-            <p className="text-sm text-gray-500">
-              {total} contact{total === 1 ? "" : "s"} in this workspace
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowImport(true)}
-              className="border border-gray-300 rounded px-3 py-1.5 text-sm hover:bg-gray-100"
-            >
-              Import CSV
-            </button>
-            <button
-              onClick={() => setShowAdd(true)}
-              className="bg-blue-600 text-white rounded px-3 py-1.5 text-sm hover:bg-blue-700"
-            >
-              Add contact
-            </button>
-          </div>
-        </header>
+    <AppShell
+      title="Contacts"
+      actions={
+        <>
+          {/* CSV export — workspace-scoped; respects current filters by
+              re-using the same query-string the list uses. */}
+          <GhostButton
+            onClick={() => {
+              const params = new URLSearchParams();
+              if (q) params.set("q", q);
+              if (statusFilter) params.set("status", statusFilter);
+              if (listFilter) params.set("listId", listFilter);
+              if (tagFilter) params.set("tagId", tagFilter);
+              window.location.href = `/api/contacts/export?${params}`;
+            }}
+          >
+            Export CSV
+          </GhostButton>
+          <GhostButton onClick={() => setShowImport(true)}>
+            Import CSV
+          </GhostButton>
+          <PrimaryButton onClick={() => setShowAdd(true)}>
+            ＋ Add contact
+          </PrimaryButton>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="text-sm text-slate-500">
+          {total} contact{total === 1 ? "" : "s"} in this workspace
+        </div>
 
         {status && (
           <div className="text-sm bg-green-50 border border-green-200 text-green-700 rounded px-3 py-2">
@@ -331,7 +339,7 @@ export default function ContactsPage() {
           onError={(e) => setError(e)}
         />
       )}
-    </main>
+    </AppShell>
   );
 }
 

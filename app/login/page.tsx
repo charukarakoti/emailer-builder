@@ -12,7 +12,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 export default function LoginPage() {
   const router = useRouter();
   const search = useSearchParams();
-  const next = search.get("next") || "/";
+  // Default landing page after sign-in is the SaaS dashboard. The legacy
+  // builder still lives at "/" and is reachable from the sidebar.
+  const next = search.get("next") || "/dashboard";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

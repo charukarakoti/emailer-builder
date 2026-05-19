@@ -30,6 +30,8 @@ interface SendBody {
   subject?: string;
   doc?: EmailDocument;
   templateId?: string;
+  /** Send raw HTML composed in the HTML editor (no template row needed). */
+  rawHtml?: string;
   fromName?: string;
   replyTo?: string;
 }
@@ -60,9 +62,15 @@ export async function POST(req: Request) {
       throw badRequest(`Invalid email address(es): ${invalid.join(", ")}`);
     }
 
-    // ----- resolve document ------------------------------------------------
+    // ----- resolve document → HTML ----------------------------------------
+    // Two template shapes are supported:
+    //   • Visual builder doc (EmailDocument)  → rendered with generateEmailHtml
+    //   • Raw HTML (saved by the HTML editor) → sent verbatim
+    let html = "";
     let doc: EmailDocument | null = null;
     let templateName: string | null = null;
+    let rawHtmlSubject: string | null = null;
+
     if (body.templateId) {
       const row = await prisma.template.findUnique({
         where: { id: body.templateId },
@@ -70,25 +78,36 @@ export async function POST(req: Request) {
       if (!row || row.teamId !== ws.teamId) {
         throw notFound("Template not found in this workspace");
       }
+      let parsed: any;
       try {
-        doc = JSON.parse(row.doc) as EmailDocument;
+        parsed = JSON.parse(row.doc);
       } catch {
         throw badRequest("Saved template has a corrupted body");
       }
       templateName = row.name;
+      if (parsed && parsed._kind === "html") {
+        html = String(parsed.html || "");
+        rawHtmlSubject = parsed.subject || null;
+      } else {
+        doc = parsed as EmailDocument;
+        html = generateEmailHtml(doc);
+      }
+    } else if (typeof body.rawHtml === "string" && body.rawHtml.trim()) {
+      // HTML editor → send the source verbatim. No EmailDocument is built.
+      html = body.rawHtml;
     } else if (body.doc && typeof body.doc === "object") {
       doc = body.doc as EmailDocument;
+      html = generateEmailHtml(doc);
     } else {
-      throw badRequest("Either doc or templateId is required");
+      throw badRequest("Either doc, templateId or rawHtml is required");
     }
 
     const subject =
       (body.subject || "").trim() ||
-      doc.meta?.subject ||
+      doc?.meta?.subject ||
+      rawHtmlSubject ||
       templateName ||
       "(no subject)";
-
-    const html = generateEmailHtml(doc);
 
     // ----- send per-recipient ---------------------------------------------
     const sent: string[] = [];

@@ -12,8 +12,133 @@ import {
   deleteUserTemplate,
   type UserTemplate,
 } from "@/lib/userTemplates";
-import type { EmailDocument } from "@/lib/types";
+import { newDocument, type EmailDocument } from "@/lib/types";
+import { clearSaved } from "@/lib/autosave";
 import ConfirmDialog from "@/components/ConfirmDialog";
+
+/* -------------------------- Toolbar helpers -------------------------- */
+// Small UI primitives used by the redesigned header. Kept in this file so
+// the whole toolbar stays self-contained.
+
+function Divider({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={"h-7 w-px bg-slate-200 mx-0.5 hidden sm:block " + className}
+    />
+  );
+}
+
+function IconButton({
+  onClick,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-50 transition"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Export dropdown — combines:
+ *   - Export HTML  → downloads .html file
+ *   - Outlook .eml → downloads .eml for Outlook
+ *   - Open in tab  → preview the rendered HTML in a new tab
+ *   - Copy HTML    → clipboard
+ *   - Copy for Outlook → clipboard (with Outlook-friendly wrapping)
+ *
+ * Closes when the user clicks anywhere outside the panel.
+ */
+function ExportMenu({
+  onExportHtml,
+  onExportEml,
+  onCopyHtml,
+  onCopyOutlook,
+  onOpenInTab,
+}: {
+  onExportHtml: () => void;
+  onExportEml: () => void;
+  onCopyHtml: () => void;
+  onCopyOutlook: () => void;
+  onOpenInTab: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open]);
+
+  function pick(fn: () => void) {
+    return (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setOpen(false);
+      fn();
+    };
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="h-9 inline-flex items-center gap-1 px-3 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-black transition"
+      >
+        Export <span className="text-xs opacity-70">▾</span>
+      </button>
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-40 py-1 text-sm"
+        >
+          <button
+            onClick={pick(onExportHtml)}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50"
+          >
+            Download HTML
+          </button>
+          <button
+            onClick={pick(onExportEml)}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50"
+          >
+            Download Outlook (.eml)
+          </button>
+          <button
+            onClick={pick(onOpenInTab)}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50"
+          >
+            Open in new tab
+          </button>
+          <div className="h-px bg-slate-100 my-1" />
+          <button
+            onClick={pick(onCopyHtml)}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50"
+          >
+            Copy HTML source
+          </button>
+          <button
+            onClick={pick(onCopyOutlook)}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50"
+          >
+            Copy for Outlook
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* -------------------------- .eml builder -------------------------- */
 function buildEml(subject: string, html: string): string {
@@ -132,7 +257,7 @@ function TemplateManagerDialog({
 
         {userTemplates.length === 0 ? (
           <div className="text-sm text-slate-500 text-center py-8">
-            No saved templates yet. Click "+ New template" to create one.
+            No saved templates yet. Design an email and click "💾 Save as template" to keep it.
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto mb-3 space-y-2 border rounded p-2 bg-slate-50">
@@ -166,10 +291,17 @@ function TemplateManagerDialog({
 }
 
 /* -------------------- Send Email Dialog -------------------- */
-// Compose-and-send for the current canvas. Recipients are comma- or
-// newline-separated emails; each is sent as its own SMTP message via
-// /api/send. Errors per recipient are listed back in the dialog so the user
-// can fix bad addresses without losing the rest of the send.
+// Redesigned Phase-2 dialog. Visual changes:
+//   • Header strip with brand-coloured icon + close button
+//   • Inputs reorganised so the most-mistaken field (recipients) is up top
+//   • Recipients shown as live "chips" as the user types — instant visual
+//     feedback for how many people the email is going to
+//   • Status, success and failure rendered inline (no longer routed through
+//     the global toast for the email-specific path)
+//   • Friendlier copy + grouped helper text
+//
+// The send protocol itself is unchanged — POST /api/send with the same
+// payload. Behaviour around partial failures is preserved.
 function SendEmailDialog({
   doc,
   onClose,
@@ -186,6 +318,10 @@ function SendEmailDialog({
   const [fromName, setFromName] = useState("");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<{ email: string; error: string }[]>([]);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
   function parseRecipients(raw: string): string[] {
     return raw
@@ -194,20 +330,25 @@ function SendEmailDialog({
       .filter((s) => s.length > 0);
   }
 
+  const parsed = parseRecipients(to);
+  const valid = parsed.filter((e) => EMAIL_RE.test(e));
+  const invalid = parsed.filter((e) => !EMAIL_RE.test(e));
+
   async function send() {
-    const recipients = parseRecipients(to);
-    if (recipients.length === 0) {
-      onError("Add at least one recipient");
+    setInlineError(null);
+    setSuccess(null);
+    setFailed([]);
+    if (valid.length === 0) {
+      setInlineError("Add at least one valid recipient.");
       return;
     }
     setBusy(true);
-    setFailed([]);
     try {
       const r = await fetch("/api/send", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          to: recipients,
+          to: valid,
           subject: subject || undefined,
           doc,
           fromName: fromName || undefined,
@@ -215,25 +356,29 @@ function SendEmailDialog({
       });
       const data = await r.json();
       if (!r.ok) {
-        onError(data?.error || "Send failed");
+        setInlineError(data?.error || "Send failed");
         return;
       }
       const sent: string[] = data.sent || [];
       const fail: { email: string; error: string }[] = data.failed || [];
       setFailed(fail);
       if (sent.length && !fail.length) {
-        onSent(
-          `Sent to ${sent.length} recipient${sent.length === 1 ? "" : "s"}.`
+        setSuccess(
+          `Delivered to ${sent.length} recipient${
+            sent.length === 1 ? "" : "s"
+          } 🎉`
         );
+        // Also surface a toast so closing the dialog doesn't lose the news.
+        onSent(`Email sent to ${sent.length}.`);
       } else if (sent.length && fail.length) {
-        onError(
-          `Sent to ${sent.length}, but ${fail.length} failed — see list below.`
+        setSuccess(
+          `Delivered to ${sent.length}, but ${fail.length} failed.`
         );
       } else {
-        onError("All sends failed — see list below.");
+        setInlineError("All deliveries failed — see the list below.");
       }
     } catch (e: any) {
-      onError(e?.message || "Network error");
+      setInlineError(e?.message || "Network error");
     } finally {
       setBusy(false);
     }
@@ -241,86 +386,177 @@ function SendEmailDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4"
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center px-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg shadow-xl p-5 w-full max-w-md"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="font-semibold text-lg mb-1">Send email</div>
-        <div className="text-xs text-slate-500 mb-4">
-          Delivers the current canvas through your SMTP credentials in{" "}
-          <code>.env</code>. One message per recipient.
-        </div>
-
-        <label className="block text-sm mb-3">
-          <span className="block text-slate-700 mb-1">
-            To <span className="text-slate-400">(comma- or newline-separated)</span>
-          </span>
-          <textarea
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            rows={3}
-            placeholder="alice@example.com, bob@example.com"
-            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </label>
-
-        <label className="block text-sm mb-3">
-          <span className="block text-slate-700 mb-1">Subject</span>
-          <input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder={doc.meta?.subject || "Subject line"}
-            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </label>
-
-        <label className="block text-sm mb-4">
-          <span className="block text-slate-700 mb-1">
-            From name <span className="text-slate-400">(optional)</span>
-          </span>
-          <input
-            value={fromName}
-            onChange={(e) => setFromName(e.target.value)}
-            placeholder="Acme Updates"
-            className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-          <span className="text-xs text-slate-500 mt-1 block">
-            The email address is fixed to your SMTP_FROM; only the display
-            name can change here (most providers require a verified address).
-          </span>
-        </label>
-
-        {failed.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded p-2 mb-3 text-xs text-red-800">
-            <div className="font-semibold mb-1">Failed deliveries:</div>
-            <ul className="space-y-0.5">
-              {failed.map((f, i) => (
-                <li key={i}>
-                  <span className="font-mono">{f.email}</span> — {f.error}
-                </li>
-              ))}
-            </ul>
+        {/* Header strip */}
+        <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-slate-100">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center text-base shadow-sm">
+              ✉
+            </div>
+            <div>
+              <div className="font-semibold text-base text-slate-900">
+                Send email
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                Delivers the current canvas through your SMTP account. One
+                message per recipient.
+              </div>
+            </div>
           </div>
-        )}
-
-        <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            disabled={busy}
-            className="border px-3 py-1 rounded hover:bg-slate-50 text-sm disabled:opacity-50"
+            className="text-slate-400 hover:text-slate-700 transition h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100"
+            aria-label="Close"
           >
-            Cancel
+            ✕
           </button>
-          <button
-            onClick={send}
-            disabled={busy || !to.trim()}
-            className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 text-sm disabled:opacity-50"
-          >
-            {busy ? "Sending…" : "Send"}
-          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-4 space-y-4">
+          {/* Recipients */}
+          <div>
+            <label className="block text-sm">
+              <span className="block text-slate-700 font-medium mb-1.5">
+                Recipients
+              </span>
+              <textarea
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                rows={3}
+                placeholder="alice@example.com, bob@example.com"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
+              />
+            </label>
+            {parsed.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {valid.map((e) => (
+                  <span
+                    key={e}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 border border-emerald-200"
+                  >
+                    {e}
+                  </span>
+                ))}
+                {invalid.map((e) => (
+                  <span
+                    key={e}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-rose-50 text-rose-700 border border-rose-200"
+                    title="Not a valid email address"
+                  >
+                    {e}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="mt-1.5 text-xs text-slate-500">
+              {valid.length} valid · {invalid.length} invalid
+              {invalid.length > 0 && " (will be skipped)"}
+            </div>
+          </div>
+
+          {/* Subject + from name (2-col on wider screens) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block text-sm">
+              <span className="block text-slate-700 font-medium mb-1.5">
+                Subject
+              </span>
+              <input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="What recipients see in their inbox"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="block text-slate-700 font-medium mb-1.5">
+                From name{" "}
+                <span className="text-slate-400 font-normal">(optional)</span>
+              </span>
+              <input
+                value={fromName}
+                onChange={(e) => setFromName(e.target.value)}
+                placeholder="JV Team"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
+              />
+            </label>
+          </div>
+
+          {/* Helper note */}
+          <div className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+            <strong className="text-slate-700">Heads up:</strong> the sender
+            address is fixed to <code>SMTP_FROM</code> in your{" "}
+            <code>.env</code>. Only the display name can change above (most
+            providers require a verified address).
+          </div>
+
+          {/* Inline status */}
+          {success && (
+            <div className="text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-3 py-2">
+              {success}
+            </div>
+          )}
+          {inlineError && (
+            <div className="text-sm bg-rose-50 border border-rose-200 text-rose-800 rounded-lg px-3 py-2">
+              {inlineError}
+            </div>
+          )}
+          {failed.length > 0 && (
+            <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800">
+              <div className="font-semibold mb-1">
+                Failed deliveries ({failed.length}):
+              </div>
+              <ul className="space-y-0.5 max-h-24 overflow-y-auto">
+                {failed.map((f, i) => (
+                  <li key={i}>
+                    <span className="font-mono">{f.email}</span> — {f.error}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-2 px-6 py-4 bg-slate-50 border-t border-slate-100">
+          <div className="text-xs text-slate-500">
+            {valid.length > 0 && !busy
+              ? `Ready to send to ${valid.length} recipient${
+                  valid.length === 1 ? "" : "s"
+                }`
+              : busy
+              ? "Sending in progress…"
+              : "Enter at least one recipient to enable Send"}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              disabled={busy}
+              className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={send}
+              disabled={busy || valid.length === 0}
+              className="h-9 inline-flex items-center gap-1.5 px-4 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {busy ? (
+                <>
+                  <span className="inline-block h-3.5 w-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                <>✉ Send email</>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -438,6 +674,38 @@ export default function TopBar({
 
   const handleSaveAsTemplate = () => setSaveDialogOpen(true);
 
+  // "+ New template" — wipes the canvas back to a fresh blank document so the
+  // user never starts a new template on top of yesterday's work. We confirm
+  // first when there are existing sections, clear the localStorage-backed
+  // history + autosave (so a reload won't bring the old draft back), and then
+  // reset the store to a brand-new EmailDocument.
+  const handleNewBlankTemplate = () => {
+    const hasContent =
+      doc.sections.length > 0 ||
+      (doc.meta.subject && doc.meta.subject.trim().length > 0);
+    const reset = () => {
+      clearSaved();
+      setDoc(newDocument());
+      notify("Started a new blank template", "success");
+    };
+    if (!hasContent) {
+      reset();
+      return;
+    }
+    setConfirmDialog({
+      isOpen: true,
+      title: "Start a new template?",
+      message:
+        "This clears the current canvas. Any unsaved work will be lost. (Already-saved templates in the Templates dropdown are unaffected.)",
+      confirmText: "Start blank",
+      variant: "primary",
+      action: () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        reset();
+      },
+    });
+  };
+
   const handleSaveConfirm = async (name: string, overwrite: boolean) => {
     try {
       if (overwrite) {
@@ -504,27 +772,47 @@ export default function TopBar({
   return (
     <>
       {/* =====================================================================
-          Responsive sticky header.
-          • Sticks to the top of the viewport (sticky + z-30) so the toolbar
-            stays visible while scrolling the canvas.
-          • Two button groups wrap independently with `flex-wrap`. On wide
-            screens they sit on one row; on narrow screens the right-hand
-            export/send/auth group drops to a second row instead of forcing
-            a horizontal scrollbar.
-          • Buttons can shrink — `flex-wrap` does the heavy lifting; no
-            forced `whitespace-nowrap` or `min-w-max` anywhere.
-          ===================================================================== */}
-      <div className="sticky top-0 z-30 border-b bg-white">
-        <div className="flex flex-wrap items-center gap-2 gap-y-2 px-3 sm:px-4 py-2">
-          {/* Brand */}
-          <div className="font-semibold whitespace-nowrap mr-2">
-            📧 Email Builder <span className="hidden sm:inline">v3.3</span>
-          </div>
+          Cleaner SaaS toolbar.
 
-          {/* Left group — template + edit actions */}
-          <div className="flex flex-wrap items-center gap-2">
+          Visual goals (Benchmark-style):
+          - One row of grouped chips; never more than two on mobile.
+          - Subtle vertical separators between groups.
+          - Light background, rounded buttons, consistent height (h-9).
+          - Less noise: rare actions (Copy source, .eml, etc.) live inside a
+            single "Export ▾" dropdown instead of cluttering the bar.
+          - The "Manage" button is removed — the same destructive flow lives
+            on the Templates dropdown / Saved templates dialog.
+          ===================================================================== */}
+      <div className="sticky top-0 z-30 bg-white border-b border-slate-200">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-5 py-2.5">
+          {/* Brand — clicks to the dashboard. */}
+          <a
+            href="/dashboard"
+            className="flex items-center gap-2 font-semibold tracking-tight mr-1 hover:opacity-80 transition"
+            title="Go to dashboard"
+          >
+            <span className="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 text-white text-xs">
+              ✉
+            </span>
+            <span className="hidden sm:inline">Email Builder</span>
+          </a>
+
+          {/* Explicit dashboard link so the back-out path is obvious even
+              for users who don't realise the logo is clickable. */}
+          <a
+            href="/dashboard"
+            className="hidden md:inline-flex items-center gap-1 h-9 px-3 rounded-lg text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+            title="Back to dashboard"
+          >
+            ← Dashboard
+          </a>
+
+          <Divider />
+
+          {/* Template ops — load / new / save */}
+          <div className="flex items-center gap-1.5">
             <select
-              className="text-sm border rounded px-2 py-1 bg-white max-w-[180px]"
+              className="h-9 text-sm border border-slate-200 bg-white rounded-lg px-2.5 max-w-[180px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
               onChange={(e) => handleSelectTemplate(e.target.value)}
               defaultValue=""
             >
@@ -537,111 +825,87 @@ export default function TopBar({
                 </optgroup>
               )}
               {userTemplates.length > 0 && (
-                <optgroup label="Saved Templates">
+                <optgroup label="Saved">
                   {userTemplates.map((t) => (
                     <option key={t.id}>{t.name}</option>
                   ))}
                 </optgroup>
               )}
             </select>
-
+            <button
+              onClick={handleNewBlankTemplate}
+              className="h-9 inline-flex items-center gap-1 px-3 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition"
+              title="Clear the canvas and start a brand-new blank template"
+            >
+              ＋ New
+            </button>
             <button
               onClick={handleSaveAsTemplate}
-              className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 text-sm whitespace-nowrap"
+              className="h-9 inline-flex items-center gap-1 px-3 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50 transition"
+              title="Save the current canvas as a reusable template"
             >
-              + New template
-            </button>
-
-            {userTemplates.length > 0 && (
-              <button
-                onClick={() => setManagerOpen(true)}
-                className="text-sm border px-2 py-1 rounded hover:bg-slate-100 whitespace-nowrap"
-                title="Manage saved templates"
-              >
-                📋 Manage
-              </button>
-            )}
-
-            <button
-              onClick={undo}
-              className="border px-2 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
-              title="Undo (Cmd+Z)"
-            >
-              ↶ Undo
-            </button>
-
-            <button
-              onClick={redo}
-              className="border px-2 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
-              title="Redo (Cmd+Shift+Z)"
-            >
-              ↷ Redo
+              Save
             </button>
           </div>
 
-          {/* Right group — preview / export / send / auth. `ml-auto` pushes
-              this block to the far right on one-row layouts; on wrap it
-              naturally flows to the next line at the left margin. */}
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <button
-              onClick={() => onPreview("desktop")}
-              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
-            >
-              Desktop
-            </button>
-            <button
-              onClick={() => onPreview("mobile")}
-              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
-            >
-              Mobile
-            </button>
-            <button
-              onClick={handleOpenInTab}
-              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
-            >
-              New tab
-            </button>
-            <button
-              onClick={handleExportEml}
-              className="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 text-sm whitespace-nowrap"
-            >
-              Outlook (.eml)
-            </button>
-            <button
-              onClick={handleCopyForOutlook}
-              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
-            >
-              Copy for Outlook
-            </button>
-            <button
-              onClick={handleCopy}
-              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm whitespace-nowrap"
-            >
-              Copy source
-            </button>
-            <button
-              onClick={handleExport}
-              className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 text-sm whitespace-nowrap"
-            >
-              Export HTML
-            </button>
-            {/* Send — opens the SendEmailDialog. POST /api/send delivers the
-                rendered HTML via SMTP (configured in .env). */}
+          <Divider />
+
+          {/* History */}
+          <div className="flex items-center gap-1">
+            <IconButton onClick={undo} title="Undo (Cmd+Z)">
+              ↶
+            </IconButton>
+            <IconButton onClick={redo} title="Redo (Cmd+Shift+Z)">
+              ↷
+            </IconButton>
+          </div>
+
+          {/* Right cluster — preview / export / send / auth */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            <div className="hidden sm:inline-flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden">
+              <button
+                onClick={() => onPreview("desktop")}
+                className="h-9 px-3 text-sm text-slate-700 hover:bg-slate-50 transition"
+                title="Desktop preview"
+              >
+                Desktop
+              </button>
+              <span className="w-px h-5 bg-slate-200" />
+              <button
+                onClick={() => onPreview("mobile")}
+                className="h-9 px-3 text-sm text-slate-700 hover:bg-slate-50 transition"
+                title="Mobile preview"
+              >
+                Mobile
+              </button>
+            </div>
+
+            {/* Export dropdown — folds the four export/copy variants into one
+                button so the bar isn't dominated by them. */}
+            <ExportMenu
+              onExportHtml={handleExport}
+              onExportEml={handleExportEml}
+              onCopyHtml={handleCopy}
+              onCopyOutlook={handleCopyForOutlook}
+              onOpenInTab={handleOpenInTab}
+            />
+
             <button
               onClick={() => setSendOpen(true)}
-              className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 text-sm whitespace-nowrap"
-              title="Send the current canvas to one or more email addresses"
+              className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition"
+              title="Send the current canvas via email"
             >
-              Send email
+              ✉ Send
             </button>
-            {/* Sign-out — clears the session cookie on the server and
-                redirects to /login. */}
+
+            <Divider className="hidden md:block" />
+
             <button
               onClick={async () => {
                 await fetch("/api/auth/logout", { method: "POST" });
                 window.location.href = "/login";
               }}
-              className="border px-3 py-1 rounded hover:bg-slate-100 text-sm text-slate-700 whitespace-nowrap"
+              className="h-9 px-3 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition"
               title="Sign out"
             >
               Sign out

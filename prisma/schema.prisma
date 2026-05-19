@@ -76,6 +76,10 @@ model Team {
   media       Media[]
   activity    ActivityLog[]
   events      EmailEvent[]
+  companies   Company[]
+  designations Designation[]
+  cvs         Cv[]
+  signatures  Signature[]
 }
 
 // SQLite doesn't support Prisma enums, so role is a free string with a
@@ -189,18 +193,26 @@ model Contact {
   // "subscribed" | "unsubscribed" | "bounced" | "complained" | "pending"
   status     String   @default("subscribed")
   source     String?  // "import" | "form" | "api" | "manual"
+  // Optional links to the CRM tables added in the SaaS upgrade.
+  companyId      String?
+  designationId  String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  team       Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  lists      ContactList[]
-  tags       ContactTag[]
-  recipients CampaignRecipient[]
-  events     EmailEvent[]
+  team        Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  company     Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  designation Designation?       @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  lists       ContactList[]
+  tags        ContactTag[]
+  recipients  CampaignRecipient[]
+  events      EmailEvent[]
   submissions FormSubmission[]
+  cvs         Cv[]
 
   @@unique([teamId, email])
   @@index([teamId, status])
+  @@index([companyId])
+  @@index([designationId])
 }
 
 model List {
@@ -403,6 +415,83 @@ model Media {
 // ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// SaaS CRM extensions — Company, Designation, Cv
+// ---------------------------------------------------------------------------
+
+model Company {
+  id        String   @id @default(cuid())
+  teamId    String
+  name      String
+  industry  String?
+  website   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team     Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  contacts Contact[]
+
+  @@unique([teamId, name])
+  @@index([teamId])
+}
+
+model Designation {
+  id        String   @id @default(cuid())
+  teamId    String
+  name      String
+  // "engineering" | "sales" | "marketing" | "executive" | "operations" | "other"
+  category  String?
+  createdAt DateTime @default(now())
+
+  team     Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  contacts Contact[]
+
+  @@unique([teamId, name])
+  @@index([teamId])
+}
+
+model Cv {
+  id          String   @id @default(cuid())
+  teamId      String
+  // Optional Contact this CV belongs to.
+  contactId   String?
+  // Display name shown in the library.
+  title       String
+  // Public URL of the uploaded file (signed S3 URL, /uploads path, etc.)
+  url         String
+  storageKey  String?
+  filename    String
+  contentType String?  // application/pdf | application/msword | ...
+  sizeBytes   Int?
+  uploadedById String?
+  createdAt   DateTime @default(now())
+
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  contact    Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([teamId, createdAt])
+  @@index([contactId])
+}
+
+/// Email signature designed in the Signature builder. `doc` is the JSON
+/// SignatureDoc (theme + ordered list of blocks). Rendering lives in
+/// lib/signatureHtml.ts and emits Outlook-compatible table HTML.
+model Signature {
+  id        String   @id @default(cuid())
+  teamId    String
+  ownerId   String
+  name      String
+  doc       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, updatedAt])
+  @@index([ownerId])
+}
 
 model ActivityLog {
   id        String   @id @default(cuid())

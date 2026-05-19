@@ -45,15 +45,23 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
     return NextResponse.json({
-      templates: rows.map((t) => ({
-        id: t.id,
-        name: t.name,
-        doc: safeParse(t.doc),
-        createdAt: t.createdAt.getTime(),
-        updatedAt: t.updatedAt.getTime(),
-        owner: t.owner,
-        isMine: t.ownerId === session.userId,
-      })),
+      templates: rows.map((t) => {
+        const parsed = safeParse(t.doc) as any;
+        const kind =
+          parsed && typeof parsed === "object" && parsed._kind === "html"
+            ? "html"
+            : "doc";
+        return {
+          id: t.id,
+          name: t.name,
+          doc: parsed,
+          kind,
+          createdAt: t.createdAt.getTime(),
+          updatedAt: t.updatedAt.getTime(),
+          owner: t.owner,
+          isMine: t.ownerId === session.userId,
+        };
+      }),
     });
   } catch (e: any) {
     return NextResponse.json(
@@ -75,19 +83,40 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as {
       name?: string;
       doc?: unknown;
+      // Raw HTML mode (HTML editor saves through here).
+      rawHtml?: string;
+      subject?: string;
     };
     const desiredName = (body.name || "").trim() || "Untitled template";
-    if (!body.doc || typeof body.doc !== "object") {
+
+    // Two save shapes:
+    //   1. Visual builder → { doc: EmailDocument } (existing flow)
+    //   2. HTML editor    → { rawHtml: "<html>…", subject: "…" }
+    //
+    // Both end up serialised into the `doc` string column. The render
+    // endpoint detects the second shape via the `_kind: "html"` marker
+    // we attach below.
+    let docToStore: string;
+    if (typeof body.rawHtml === "string") {
+      docToStore = JSON.stringify({
+        _kind: "html",
+        html: body.rawHtml,
+        subject: body.subject || "",
+      });
+    } else if (body.doc && typeof body.doc === "object") {
+      docToStore = JSON.stringify(body.doc);
+    } else {
       return NextResponse.json(
-        { error: "doc is required" },
+        { error: "doc or rawHtml is required" },
         { status: 400 }
       );
     }
+
     const finalName = await uniqueName(desiredName, session.activeTeamId);
     const t = await prisma.template.create({
       data: {
         name: finalName,
-        doc: JSON.stringify(body.doc),
+        doc: docToStore,
         ownerId: session.userId,
         teamId: session.activeTeamId,
       },

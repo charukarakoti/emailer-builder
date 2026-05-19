@@ -41,7 +41,8 @@ export default function SignupPage() {
           body: JSON.stringify({ code: inviteCode }),
         });
       }
-      router.replace("/");
+      // Land newly signed-up users in the dashboard, not the builder.
+      router.replace("/dashboard");
       router.refresh();
     } catch (err: any) {
       setError(err.message || "Sign-up failed");

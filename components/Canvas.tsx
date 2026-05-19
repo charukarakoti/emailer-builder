@@ -7,6 +7,7 @@
 // droppables. Do NOT add a DndContext here — it would create a nested
 // context and break palette → column drops.
 // =============================================================================
+import { useRef } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -155,8 +156,17 @@ function ColumnView({
   return (
     <div
       ref={setNodeRef}
-      style={{ width, verticalAlign }}
-      className={`inline-block relative transition-colors ${
+      // `box-sizing: border-box` ensures any borders / paddings applied on
+      // the column don't push the total past the canvas width — that's
+      // what made multi-column sections look "broken" when extra padding
+      // was applied to one column but not another.
+      style={{
+        width,
+        verticalAlign,
+        boxSizing: "border-box",
+        fontSize: "14px", // restore — parent has fontSize:0 to kill gaps
+      }}
+      className={`inline-block relative align-top transition-colors ${
         isOver
           ? "bg-blue-100 outline-dashed outline-[3px] outline-blue-500 ring-2 ring-blue-200"
           : ""
@@ -198,15 +208,140 @@ function ColumnView({
 }
 
 // -----------------------------------------------------------------------------
+// Column resize handle
+// -----------------------------------------------------------------------------
+//
+// A 4px-wide vertical grab bar that sits between two adjacent columns. On
+// pointer-down we capture the pointer and the starting widths; on move we
+// compute the new split based on the pixel delta vs the section's pixel
+// width; on pointer-up we commit the new widths to the store. A 5% floor
+// per column prevents either side from being dragged to nothing.
+
+function ColumnResizeHandle({
+  sectionId,
+  leftIndex,
+  widthsPct,
+  offsetPct,
+  currentLayout,
+}: {
+  sectionId: string;
+  leftIndex: number;
+  widthsPct: string[];
+  offsetPct: number;
+  currentLayout: ColumnLayout;
+  currentWidths?: number[];
+}) {
+  const setColumnWidths = useBuilder((st) => st.setColumnWidths);
+  const ref = useRef<HTMLDivElement>(null);
+  const drag = useRef<{
+    startX: number;
+    parentWidth: number;
+    widths: number[];
+  } | null>(null);
+
+  function pctsAsNumbers(): number[] {
+    return widthsPct.map((p) => parseFloat(p));
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const parent = ref.current?.parentElement;
+    if (!parent) return;
+    drag.current = {
+      startX: e.clientX,
+      parentWidth: parent.getBoundingClientRect().width,
+      widths: pctsAsNumbers(),
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    const d = drag.current;
+    if (!d) return;
+    const deltaPx = e.clientX - d.startX;
+    const deltaPct = (deltaPx / d.parentWidth) * 100;
+    const left = d.widths[leftIndex];
+    const right = d.widths[leftIndex + 1];
+    // 5% floor per column.
+    const maxIncrease = right - 5;
+    const maxDecrease = -(left - 5);
+    const clamped = Math.min(maxIncrease, Math.max(maxDecrease, deltaPct));
+    const next = d.widths.slice();
+    next[leftIndex] = +(left + clamped).toFixed(4);
+    next[leftIndex + 1] = +(right - clamped).toFixed(4);
+    setColumnWidths(sectionId, next);
+  }
+
+  function onPointerUp(e: React.PointerEvent) {
+    drag.current = null;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (columnCountFor(currentLayout) < 2) return null;
+
+  return (
+    <div
+      ref={ref}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onClick={(e) => e.stopPropagation()}
+      title="Drag to resize columns"
+      className="group"
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: `${offsetPct}%`,
+        // Center the hit area on the column boundary.
+        width: "10px",
+        transform: "translateX(-50%)",
+        cursor: "col-resize",
+        userSelect: "none",
+        touchAction: "none",
+        zIndex: 5,
+      }}
+    >
+      <div
+        className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-transparent group-hover:bg-indigo-400 transition-colors"
+      />
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
 // Section
 // -----------------------------------------------------------------------------
 
-function columnWidthsPct(layout: ColumnLayout): string[] {
+/**
+ * Computed widths for each column in the section, as CSS percentage
+ * strings. Honours any manually-set Section.style.columnWidths first;
+ * falls back to the defaults baked into the layout type.
+ *
+ * The function also normalises the values so they sum to exactly 100 even
+ * if rounding has drifted them — sub-pixel gaps were the cause of the
+ * "sections look broken after adding" visual bug.
+ */
+function columnWidthsPct(
+  layout: ColumnLayout,
+  custom?: number[] | undefined
+): string[] {
   const n = columnCountFor(layout);
-  if (layout === "1") return ["100%"];
-  if (layout === "50-50") return ["50%", "50%"];
-  if (layout === "60-40") return ["60%", "40%"];
-  return Array.from({ length: n }, () => `${(100 / n).toFixed(4)}%`);
+  const base = (() => {
+    if (custom && custom.length === n) return custom.slice();
+    if (layout === "1") return [100];
+    if (layout === "50-50") return [50, 50];
+    if (layout === "60-40") return [60, 40];
+    return Array.from({ length: n }, () => 100 / n);
+  })();
+  // Normalise — guarantee total = 100, avoid sub-pixel rounding gaps.
+  const sum = base.reduce((a, b) => a + b, 0);
+  return base.map((w) => `${((w / sum) * 100).toFixed(4)}%`);
 }
 
 function SortableSection({
@@ -231,7 +366,7 @@ function SortableSection({
   });
   const selected = sectionId === section.id && !blockId;
   const s = section.style;
-  const widths = columnWidthsPct(s.columnLayout);
+  const widths = columnWidthsPct(s.columnLayout, s.columnWidths);
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -270,7 +405,10 @@ function SortableSection({
         §{index + 1} ⇅
       </div>
 
-      <div style={{ fontSize: 0 }}>
+      {/* fontSize: 0 removes inline-block whitespace gaps. The container
+          uses position:relative so the absolute-positioned resize handles
+          float between adjacent columns without stealing width. */}
+      <div style={{ fontSize: 0, position: "relative" }}>
         {section.columns.map((col, ci) => (
           <ColumnView
             key={ci}
@@ -281,6 +419,25 @@ function SortableSection({
             verticalAlign={s.verticalAlign || "top"}
           />
         ))}
+        {/* Resize handles — N-1 of them, each anchored to the cumulative
+            right edge of the column at `leftIndex`. */}
+        {section.columns.length > 1 &&
+          section.columns.slice(0, -1).map((_, ci) => {
+            const cumulative = widths
+              .slice(0, ci + 1)
+              .reduce((acc, p) => acc + parseFloat(p), 0);
+            return (
+              <ColumnResizeHandle
+                key={`resize-${ci}`}
+                sectionId={section.id}
+                leftIndex={ci}
+                widthsPct={widths}
+                offsetPct={cumulative}
+                currentLayout={s.columnLayout}
+                currentWidths={s.columnWidths}
+              />
+            );
+          })}
       </div>
 
       {selected && (
@@ -333,10 +490,9 @@ export default function Canvas() {
         select({ sectionId: null, columnIndex: null, blockId: null })
       }
     >
-      <div className="text-xs text-slate-500 text-center mb-2">
-        Email alignment: <strong>{doc.meta.alignment}</strong> (applied on
-        export)
-      </div>
+      {/* The "Email alignment: …" debug hint that lived here was removed in
+          the SaaS redesign — the same toggle is available in the right
+          panel under Layout → Page alignment. */}
       <div
         className="canvas-frame bg-white"
         style={{
@@ -362,7 +518,18 @@ export default function Canvas() {
         </SortableContext>
       </div>
 
-      <div className="mt-4 flex gap-2 justify-center flex-wrap">
+      {/* Section quick-add row — constrained to the canvas width and
+          centered so it visually belongs to the email column rather than
+          sprawling across the entire canvas area. */}
+      <div
+        style={{
+          width: doc.meta.contentWidth,
+          maxWidth: "100%",
+          marginLeft: "auto",
+          marginRight: "auto",
+        }}
+        className="mt-4 flex gap-2 justify-center flex-wrap"
+      >
         {ADD_LAYOUTS.map((l) => (
           <button
             key={l.v}
@@ -370,7 +537,7 @@ export default function Canvas() {
               e.stopPropagation();
               addSection(l.v);
             }}
-            className="text-xs px-3 py-2 bg-white border-dashed border-2 border-slate-300 rounded hover:border-blue-400"
+            className="text-xs px-3 py-1.5 bg-white border-dashed border-2 border-slate-300 rounded hover:border-blue-400"
           >
             + Section ({l.label})
           </button>

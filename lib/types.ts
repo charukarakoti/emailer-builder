@@ -169,6 +169,13 @@ export interface Section {
     border: Border;                 // section-level border
     borderRadius: string;           // 0–8px safe
     verticalAlign: "top" | "middle" | "bottom";
+    /**
+     * Optional manual column widths as percentages that sum to 100.
+     * When present, overrides the implicit widths from columnLayout. Set
+     * by dragging the column-resize handle on the canvas. Removed/cleared
+     * whenever the column count changes (via changeColumnLayout).
+     */
+    columnWidths?: number[];
   };
   columns: Column[];
 }
