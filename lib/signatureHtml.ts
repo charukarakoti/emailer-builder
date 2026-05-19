@@ -36,7 +36,32 @@ export type SignatureLeafBlock =
   | {
       id: string;
       type: "social";
-      networks: { kind: "linkedin" | "twitter" | "instagram" | "facebook" | "github" | "youtube"; url: string }[];
+      networks: {
+        kind:
+          | "linkedin"
+          | "twitter"
+          | "instagram"
+          | "facebook"
+          | "github"
+          | "youtube"
+          | "whatsapp"
+          | "telegram"
+          | "tiktok"
+          | "dribbble"
+          | "behance"
+          | "medium"
+          | "pinterest"
+          | "snapchat"
+          | "custom";
+        url: string;
+        label?: string;           // Custom label for custom icons
+        iconUrl?: string;         // Custom icon image URL
+        brandColor?: string;      // Custom brand color for outline style
+      }[];
+      /** Visual treatment for the icon chips. */
+      style?: "filled" | "circle" | "outline";
+      /** Icon pixel size (square). Default 24. */
+      size?: number;
     }
   | { id: string; type: "banner"; url: string; link?: string; alt?: string }
   | { id: string; type: "divider"; color?: string; thickness?: number }
@@ -89,6 +114,22 @@ export const DEFAULT_THEME: SignatureTheme = {
   fontSize: 13,
   maxWidth: 520,
 };
+
+// Available font families for signature themes
+export const AVAILABLE_FONTS = [
+  { label: "Arial", value: 'Arial, Helvetica, sans-serif' },
+  { label: "Helvetica", value: 'Helvetica, Arial, sans-serif' },
+  { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
+  { label: "Trebuchet", value: '"Trebuchet MS", Arial, sans-serif' },
+  { label: "Verdana", value: 'Verdana, Geneva, sans-serif' },
+  { label: "Courier", value: '"Courier New", Courier, monospace' },
+  { label: "Tahoma", value: 'Tahoma, sans-serif' },
+  { label: "Times New Roman", value: '"Times New Roman", Times, serif' },
+  { label: "Comic Sans", value: '"Comic Sans MS", cursive' },
+  { label: "Impact", value: 'Impact, sans-serif' },
+  { label: "Palatino", value: 'Palatino, "Palatino Linotype", serif' },
+  { label: "Garamond", value: 'Garamond, serif' },
+];
 
 export function newSignatureDoc(): SignatureDoc {
   return {
@@ -236,26 +277,105 @@ function renderContact(b: Extract<SignatureBlock, { type: "contact" }>, t: Signa
   );
 }
 
-function socialIcon(kind: string, accent: string): string {
-  // Use unicode letter glyphs as fallback (no external image hosting needed).
-  // The accent box renders solid in every client.
-  const letter: Record<string, string> = {
-    linkedin: "in",
-    twitter: "X",
-    instagram: "ig",
-    facebook: "f",
-    github: "gh",
-    youtube: "▶",
-  };
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle" width="22" height="22" bgcolor="${accent}" style="background:${accent};color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;border-radius:4px;line-height:22px;">${letter[kind] || "•"}</td></tr></table>`;
+// Each social network's official brand colour. Used as the chip
+// background in the "filled" style (and as the icon colour in the
+// "outline" style). Verified against each brand's public brand guide.
+export const BRAND_COLOURS: Record<string, string> = {
+  linkedin: "#0a66c2",
+  twitter: "#000000",
+  instagram: "#e4405f",
+  facebook: "#1877f2",
+  github: "#181717",
+  youtube: "#ff0000",
+  whatsapp: "#25d366",
+  telegram: "#26a5e4",
+  tiktok: "#000000",
+  dribbble: "#ea4c89",
+  behance: "#1769ff",
+  medium: "#000000",
+  pinterest: "#e60023",
+  snapchat: "#fffc00",
+};
+
+// icons8.com slug per network. The "ios-filled" family is a clean
+// monochrome glyph set — perfect for both filled chips (white glyph on
+// brand colour) and outline chips (brand glyph on white).
+const ICONS8_SLUG: Record<string, string> = {
+  linkedin: "linkedin",
+  twitter: "twitterx", // icons8 routes "twitter" to old bird; "twitterx" = X
+  instagram: "instagram-new",
+  facebook: "facebook-new",
+  github: "github",
+  youtube: "youtube-play",
+  whatsapp: "whatsapp",
+  telegram: "telegram-app",
+  tiktok: "tiktok",
+  dribbble: "dribbble",
+  behance: "behance",
+  medium: "medium-monogram",
+  pinterest: "pinterest",
+  snapchat: "snapchat",
+};
+
+/**
+ * Render a single social-icon chip. Uses an icons8 PNG so Outlook on
+ * Windows renders it reliably (SVG-in-img is unreliable in Outlook desk-
+ * top). The icon size is exact; the wrapper td enforces the chip shape.
+ * Supports custom icons with custom iconUrl and brandColor.
+ */
+function socialIcon(
+  kind: string,
+  size: number,
+  style: "filled" | "circle" | "outline",
+  themeAccent: string,
+  customIconUrl?: string,
+  customBrandColor?: string
+): string {
+  // Use custom brand color if provided, otherwise fall back to predefined or theme accent
+  const brand = customBrandColor || BRAND_COLOURS[kind] || themeAccent;
+  
+  // Use custom icon URL if provided, otherwise use icons8
+  let iconUrl: string;
+  if (customIconUrl) {
+    iconUrl = customIconUrl;
+  } else {
+    const slug = ICONS8_SLUG[kind] || "globe";
+    const isOutline = style === "outline";
+    const glyphColour = isOutline ? brand.replace("#", "") : "ffffff";
+    iconUrl = `https://img.icons8.com/ios-filled/${size * 2}/${glyphColour}/${slug}.png`;
+  }
+
+  // For "filled"/"circle", the icon glyph is white on a brand-coloured chip.
+  // For "outline", the chip has a transparent fill + brand-coloured border
+  // and the glyph is rendered in the brand colour.
+  const isOutline = style === "outline";
+  const radius = style === "circle" ? Math.round(size / 2) : 4;
+  const bgcolor = isOutline ? "#ffffff" : brand;
+  const borderStyle = isOutline ? `1px solid ${brand}` : "0";
+  const iconInner = Math.max(12, Math.round(size * 0.65));
+
+  return (
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0">` +
+    `<tr><td align="center" valign="middle" width="${size}" height="${size}" ` +
+    `bgcolor="${bgcolor}" ` +
+    `style="background:${bgcolor};border:${borderStyle};border-radius:${radius}px;line-height:${size}px;mso-line-height-rule:exactly;">` +
+    `<img src="${iconUrl}" width="${iconInner}" height="${iconInner}" alt="${kind}" ` +
+    `style="display:block;width:${iconInner}px;height:${iconInner}px;border:0;outline:none;text-decoration:none;" />` +
+    `</td></tr></table>`
+  );
 }
 
-function renderSocial(b: Extract<SignatureBlock, { type: "social" }>, t: SignatureTheme): string {
+function renderSocial(
+  b: Extract<SignatureBlock, { type: "social" }>,
+  t: SignatureTheme
+): string {
   if (b.networks.length === 0) return "";
+  const size = b.size ?? 24;
+  const style = b.style ?? "filled";
   const cells = b.networks
     .map(
       (n) =>
-        `<td style="padding-right:6px;"><a href="${esc(n.url)}" style="text-decoration:none;color:${t.accent};">${socialIcon(n.kind, t.accent)}</a></td>`
+        `<td style="padding-right:6px;"><a href="${esc(n.url)}" style="text-decoration:none;color:${t.accent};">${socialIcon(n.kind, size, style, t.accent, n.iconUrl, n.brandColor)}</a></td>`
     )
     .join("");
   return (

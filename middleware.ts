@@ -24,16 +24,20 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/api/auth") ||
     PUBLIC_PATHS.includes(pathname)
   ) {
-    // If already signed in and visiting /login or /signup, bounce home.
+    // If already signed in and visiting /login or /signup, bounce to the
+    // dashboard (the new default landing page for the SaaS shell).
     if (hasSession && PUBLIC_PATHS.includes(pathname)) {
-      return NextResponse.redirect(new URL("/", req.url));
+      return NextResponse.redirect(new URL("/dashboard", req.url));
     }
     return NextResponse.next();
   }
 
   if (!hasSession) {
     const url = new URL("/login", req.url);
-    url.searchParams.set("next", pathname);
+    // Preserve the destination for deep links, but coerce the bare root URL
+    // to /dashboard so a fresh sign-in always lands on the SaaS shell
+    // instead of dropping the user into the builder editor.
+    url.searchParams.set("next", pathname === "/" ? "/dashboard" : pathname);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();

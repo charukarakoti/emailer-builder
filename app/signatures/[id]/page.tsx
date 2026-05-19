@@ -56,6 +56,7 @@ import {
   type SignatureTheme,
   SIGNATURE_LIMITS,
   DEFAULT_THEME,
+  AVAILABLE_FONTS,
   renderSignatureHtml,
   renderSignatureDocument,
 } from "@/lib/signatureHtml";
@@ -1105,7 +1106,56 @@ function PropertiesPanel({
                 <option value="facebook">Facebook</option>
                 <option value="github">GitHub</option>
                 <option value="youtube">YouTube</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="telegram">Telegram</option>
+                <option value="tiktok">TikTok</option>
+                <option value="dribbble">Dribbble</option>
+                <option value="behance">Behance</option>
+                <option value="medium">Medium</option>
+                <option value="pinterest">Pinterest</option>
+                <option value="snapchat">Snapchat</option>
+                <option value="custom">Custom Icon</option>
               </select>
+              {n.kind === "custom" && (
+                <>
+                  <input
+                    value={n.label || ""}
+                    onChange={(e) => {
+                      const networks = block.networks.slice();
+                      networks[idx] = { ...n, label: e.target.value };
+                      set({ networks } as any);
+                    }}
+                    className="input"
+                    placeholder="Label (e.g., 'My Brand')"
+                  />
+                  <input
+                    value={n.iconUrl || ""}
+                    onChange={(e) => {
+                      const networks = block.networks.slice();
+                      networks[idx] = { ...n, iconUrl: e.target.value };
+                      set({ networks } as any);
+                    }}
+                    className="input"
+                    placeholder="Icon URL (PNG image)"
+                  />
+                  <div className="text-xs text-slate-500">
+                    Icon URL: Use a PNG image URL. Recommended size: 64x64 or larger.
+                  </div>
+                  <input
+                    type="color"
+                    value={n.brandColor || "#666666"}
+                    onChange={(e) => {
+                      const networks = block.networks.slice();
+                      networks[idx] = { ...n, brandColor: e.target.value };
+                      set({ networks } as any);
+                    }}
+                    className="h-8 w-full border border-slate-200 rounded"
+                  />
+                  <div className="text-xs text-slate-500">
+                    Brand color (used for outline style)
+                  </div>
+                </>
+              )}
               <input
                 value={n.url}
                 onChange={(e) => {
@@ -1278,12 +1328,11 @@ function ThemePanel({
           onChange={(e) => onChange({ fontFamily: e.target.value })}
           className="input"
         >
-          <option value='Arial, Helvetica, sans-serif'>Arial</option>
-          <option value='Helvetica, Arial, sans-serif'>Helvetica</option>
-          <option value='Georgia, "Times New Roman", serif'>Georgia</option>
-          <option value='"Trebuchet MS", Arial, sans-serif'>Trebuchet</option>
-          <option value='Verdana, Geneva, sans-serif'>Verdana</option>
-          <option value='"Courier New", Courier, monospace'>Courier</option>
+          {AVAILABLE_FONTS.map((font) => (
+            <option key={font.value} value={font.value}>
+              {font.label}
+            </option>
+          ))}
         </select>
       </Field>
       <Field label="Base font size (px)">
