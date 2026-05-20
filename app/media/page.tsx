@@ -28,6 +28,7 @@ import AppShell, {
   Card,
   GhostButton,
   PrimaryButton,
+  useConfirm,
 } from "@/components/AppShell";
 
 interface M {
@@ -70,6 +71,7 @@ function shortType(ct: string | null): string {
 const QUOTA_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB target — purely visual.
 
 export default function MediaPage() {
+  const confirm = useConfirm();
   const [items, setItems] = useState<M[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -125,7 +127,14 @@ export default function MediaPage() {
   }
 
   async function deleteOne(m: M) {
-    if (!confirm(`Delete "${m.filename}"? This can't be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete "${m.filename}"?`,
+      message:
+        "The file is removed from your workspace immediately and any email or signature that still references its URL will show a broken image. This cannot be undone.",
+      confirmLabel: "Delete file",
+      danger: true,
+    });
+    if (!ok) return;
     const r = await fetch(`/api/media/${m.id}`, { method: "DELETE" });
     if (r.ok) {
       setStatus(`Deleted ${m.filename}.`);
@@ -137,8 +146,14 @@ export default function MediaPage() {
   }
   async function deleteSelected() {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} item(s)? This can't be undone.`))
-      return;
+    const ok = await confirm({
+      title: `Delete ${selected.size} item${selected.size === 1 ? "" : "s"}?`,
+      message:
+        "Selected files are removed from your workspace immediately. Any emails or signatures that still reference their URLs will show broken images.",
+      confirmLabel: `Delete ${selected.size}`,
+      danger: true,
+    });
+    if (!ok) return;
     for (const id of selected) {
       await fetch(`/api/media/${id}`, { method: "DELETE" });
     }

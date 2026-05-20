@@ -588,7 +588,7 @@ function PaletteTile({
   label,
   icon,
 }: {
-  type: SignatureBlock["type"];
+  type: PaletteKey;
   label: string;
   icon: string;
 }) {
@@ -776,8 +776,11 @@ function CanvasRow({
         // `min-w-0` on the row's column container is the second half of
         // the fix — without it, a flexbox child can grow to fit its own
         // min-content (the URL) and ignore the percentage width.
-        className="flex gap-2 p-2 min-w-0"
-        style={{ gap: `${block.gutter ?? 12}px` }}
+        // No `gap` on the parent — each column carries its own
+        // marginRight (col.gapAfter ?? block.gutter), so individual gaps
+        // can be tuned without forcing every column to use the same
+        // value.
+        className="flex p-2 min-w-0"
       >
         {block.columns.map((col, i) => (
           <ColumnDropZone
@@ -785,6 +788,11 @@ function CanvasRow({
             rowId={block.id}
             colIndex={i}
             width={col.width}
+            gapAfter={
+              i < block.columns.length - 1
+                ? col.gapAfter ?? block.gutter ?? 12
+                : 0
+            }
           >
             {col.blocks.length === 0 ? (
               <div className="text-[11px] text-slate-400 text-center py-3">
@@ -813,11 +821,14 @@ function ColumnDropZone({
   rowId,
   colIndex,
   width,
+  gapAfter = 0,
   children,
 }: {
   rowId: string;
   colIndex: number;
   width: number;
+  /** px of margin between this column and the next (0 on last column). */
+  gapAfter?: number;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -827,7 +838,7 @@ function ColumnDropZone({
   return (
     <div
       ref={setNodeRef}
-      style={{ width: `${width}%` }}
+      style={{ width: `${width}%`, marginRight: gapAfter }}
       // `min-w-0` + `overflow-hidden` ensure a Banner block's long URL
       // (or any unbreakable text inside a child block) gets clipped
       // instead of stretching the column past its declared width %.
@@ -945,18 +956,73 @@ function PropertiesPanel({
               ))}
             </div>
           </div>
-          <Field label="Gutter (px between columns)">
+          <Field label="Default gap (px between columns)">
             <input
               type="number"
               min={0}
               max={48}
               value={r.gutter ?? 12}
               onChange={(e) =>
-                set({ gutter: Math.max(0, Math.min(48, Number(e.target.value) || 0)) } as any)
+                set({
+                  gutter: Math.max(
+                    0,
+                    Math.min(48, Number(e.target.value) || 0)
+                  ),
+                } as any)
               }
               className="input"
             />
           </Field>
+
+          {/* Per-gap overrides — one slot for each adjacent column pair.
+              Each accepts a number or blank ("blank" = inherit the row's
+              default gap). Empties out cleanly via Number.isFinite. */}
+          {r.columns.length > 1 && (
+            <div>
+              <div className="text-slate-600 mb-1">
+                Individual gaps (override the default per pair)
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {r.columns.slice(0, -1).map((c, i) => (
+                  <label key={i} className="block text-xs">
+                    <span className="block text-slate-500 mb-0.5">
+                      Col {i + 1} → {i + 2}
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={48}
+                      placeholder={String(r.gutter ?? 12)}
+                      value={c.gapAfter ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const num = Number(v);
+                        const cols = r.columns.map((cc, idx) =>
+                          idx === i
+                            ? {
+                                ...cc,
+                                gapAfter:
+                                  v === ""
+                                    ? undefined
+                                    : Number.isFinite(num)
+                                    ? Math.max(0, Math.min(48, num))
+                                    : cc.gapAfter,
+                              }
+                            : cc
+                        );
+                        set({ columns: cols } as any);
+                      }}
+                      className="input"
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                Leave blank to inherit the default gap. Set to 0 to close
+                the gap between those two columns.
+              </div>
+            </div>
+          )}
           <Field label="Vertical align">
             <select
               value={r.verticalAlign ?? "top"}

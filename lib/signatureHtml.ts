@@ -117,6 +117,12 @@ export type SignatureLeafBlock =
 export interface SignatureColumn {
   width: number;
   blocks: SignatureLeafBlock[];
+  /**
+   * Optional per-column override for the gap (in px) between this column
+   * and the next one. When set, takes precedence over the Row's `gutter`.
+   * Ignored on the last column. 0 closes the gap entirely.
+   */
+  gapAfter?: number;
 }
 
 /**
@@ -587,7 +593,12 @@ function renderRow(b: SignatureRowBlock, t: SignatureTheme): string {
       const inner = col.blocks.length
         ? col.blocks.map((c) => renderLeaf(c, t)).join("")
         : `<tr><td style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td></tr>`;
-      const padRight = i < b.columns.length - 1 ? gutter : 0;
+      // Per-column override wins over the row-wide gutter. Last column
+      // always closes flush. Floor at 0 so negatives don't sneak through.
+      const padRight =
+        i < b.columns.length - 1
+          ? Math.max(0, col.gapAfter ?? gutter)
+          : 0;
       const w = widths[i];
       return `<td width="${w.toFixed(2)}%" valign="${valign}" style="vertical-align:${valign};width:${w.toFixed(2)}%;padding-right:${padRight}px;word-break:break-word;overflow-wrap:break-word;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;table-layout:fixed;">${inner}</table>

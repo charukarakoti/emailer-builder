@@ -58,6 +58,47 @@ export function useBuilderChooser(): BuilderChooserCtx {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Confirm dialog context
+//
+// Replaces the browser's native `confirm()` (the ugly "localhost:3000 says"
+// dialog) with a styled, promise-returning modal that matches the rest of
+// the SaaS surface. Any descendant of AppShell can call:
+//
+//   const confirm = useConfirm();
+//   if (await confirm({ title: "Delete?", message: "…", danger: true })) {
+//     // proceed
+//   }
+//
+// When called outside an AppShell tree the hook falls back to the native
+// browser confirm so calling code doesn't have to branch.
+// ---------------------------------------------------------------------------
+
+export interface ConfirmOptions {
+  title?: string;
+  message?: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** When true, the primary button is styled destructively (rose). */
+  danger?: boolean;
+}
+
+type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
+const ConfirmContext = createContext<ConfirmFn | null>(null);
+
+export function useConfirm(): ConfirmFn {
+  const ctx = useContext(ConfirmContext);
+  if (ctx) return ctx;
+  return async (opts) =>
+    typeof window !== "undefined"
+      ? window.confirm(
+          typeof opts.message === "string"
+            ? (opts.title ? opts.title + "\n\n" : "") + opts.message
+            : opts.title || "Are you sure?"
+        )
+      : false;
+}
+
 interface Me {
   user: { email: string; name: string | null } | null;
   activeTeam: { id: string; name: string } | null;
@@ -96,6 +137,23 @@ export default function AppShell({
   // Builder-chooser modal — controlled here so any AppShell page can open
   // it via the context below.
   const [chooserOpen, setChooserOpen] = useState(false);
+
+  // Confirm dialog — controlled here so any descendant can summon it via
+  // `useConfirm()`. The resolver is stashed on a ref so the buttons can
+  // settle the outstanding promise when clicked.
+  const [confirmState, setConfirmState] = useState<ConfirmOptions | null>(null);
+  const confirmResolver = useRef<((v: boolean) => void) | null>(null);
+  const requestConfirm: ConfirmFn = (opts) =>
+    new Promise<boolean>((resolve) => {
+      confirmResolver.current = resolve;
+      setConfirmState(opts);
+    });
+  const resolveConfirm = (value: boolean) => {
+    setConfirmState(null);
+    confirmResolver.current?.(value);
+    confirmResolver.current = null;
+  };
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -144,6 +202,7 @@ export default function AppShell({
     <BuilderChooserContext.Provider
       value={{ open: () => setChooserOpen(true) }}
     >
+    <ConfirmContext.Provider value={requestConfirm}>
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* ----- Mobile sidebar backdrop ----- */}
       {open && (
@@ -328,8 +387,115 @@ export default function AppShell({
         open={chooserOpen}
         onClose={() => setChooserOpen(false)}
       />
+
+      {/* Confirm dialog — see ConfirmContext above. */}
+      {confirmState && (
+        <ConfirmDialog
+          options={confirmState}
+          onResolve={resolveConfirm}
+        />
+      )}
     </div>
+    </ConfirmContext.Provider>
     </BuilderChooserContext.Provider>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Confirm dialog (rendered inside AppShell when summoned via         */
+/*  useConfirm()).                                                     */
+/* ------------------------------------------------------------------ */
+
+function ConfirmDialog({
+  options,
+  onResolve,
+}: {
+  options: ConfirmOptions;
+  onResolve: (v: boolean) => void;
+}) {
+  // Esc cancels, Enter confirms — same affordances as native confirm.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onResolve(false);
+      if (e.key === "Enter") onResolve(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onResolve]);
+
+  const danger = !!options.danger;
+  const title = options.title || "Are you sure?";
+  const confirmLabel = options.confirmLabel || (danger ? "Delete" : "Confirm");
+  const cancelLabel = options.cancelLabel || "Cancel";
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-slate-900/55 backdrop-blur-sm flex items-center justify-center px-4"
+      onClick={() => onResolve(false)}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-[fadeIn_.12s_ease-out]"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="flex items-start gap-4 px-5 pt-5">
+          <div
+            className={
+              "h-10 w-10 rounded-full flex items-center justify-center text-lg flex-shrink-0 " +
+              (danger
+                ? "bg-rose-50 text-rose-600"
+                : "bg-indigo-50 text-indigo-600")
+            }
+          >
+            {danger ? "⚠" : "?"}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-base font-semibold text-slate-900">
+              {title}
+            </div>
+            {options.message && (
+              <div className="text-sm text-slate-600 mt-1 leading-relaxed">
+                {options.message}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 bg-slate-50 border-t border-slate-100 mt-5">
+          <button
+            onClick={() => onResolve(false)}
+            className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 transition"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            onClick={() => onResolve(true)}
+            autoFocus
+            className={
+              "h-9 px-3.5 rounded-lg text-sm font-medium text-white transition " +
+              (danger
+                ? "bg-rose-600 hover:bg-rose-700"
+                : "bg-indigo-600 hover:bg-indigo-700")
+            }
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(6px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
+    </div>
   );
 }
 
@@ -382,6 +548,68 @@ export function GhostButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Shared destructive button — used everywhere a "delete" affordance lives
+ * (template cards, signature cards, media rows, bulk delete bars, …). Two
+ * shapes: text+icon button (`<DangerButton>Delete</DangerButton>`) and a
+ * 36×36 icon-only square (`iconOnly`). Both use the rose palette and a
+ * consistent hover state so the page reads at a glance.
+ */
+export function DangerButton({
+  children,
+  onClick,
+  disabled,
+  iconOnly,
+  title,
+  className = "",
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  iconOnly?: boolean;
+  title?: string;
+  className?: string;
+}) {
+  const shape = iconOnly
+    ? "h-9 w-9 inline-flex items-center justify-center"
+    : "inline-flex items-center gap-1.5 h-9 px-3.5";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={
+        shape +
+        " rounded-lg border border-slate-200 bg-white text-sm font-medium text-rose-600 hover:bg-rose-50 hover:border-rose-200 active:bg-rose-100 transition disabled:text-slate-400 disabled:hover:bg-white disabled:hover:border-slate-200 disabled:cursor-not-allowed " +
+        className
+      }
+    >
+      {iconOnly ? children : <><TrashIcon />{children}</>}
+    </button>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
   );
 }
 

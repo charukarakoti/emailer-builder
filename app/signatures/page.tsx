@@ -14,6 +14,7 @@ import AppShell, {
   EmptyState,
   GhostButton,
   PrimaryButton,
+  useConfirm,
 } from "@/components/AppShell";
 
 interface SigRow {
@@ -27,6 +28,7 @@ interface SigRow {
 
 export default function SignaturesListPage() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<SigRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
@@ -65,7 +67,14 @@ export default function SignaturesListPage() {
   }
 
   async function remove(s: SigRow) {
-    if (!confirm(`Delete signature "${s.name}"?`)) return;
+    const ok = await confirm({
+      title: `Delete signature "${s.name}"?`,
+      message:
+        "This permanently removes the signature from your workspace. Anyone using it in a copy/paste flow will need to pick a different signature.",
+      confirmLabel: "Delete signature",
+      danger: true,
+    });
+    if (!ok) return;
     const r = await fetch(`/api/signatures/${s.id}`, { method: "DELETE" });
     if (r.ok) {
       setStatus(`Deleted "${s.name}".`);

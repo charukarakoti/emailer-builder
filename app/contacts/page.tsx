@@ -14,6 +14,7 @@ import Link from "next/link";
 import AppShell, {
   GhostButton,
   PrimaryButton,
+  useConfirm,
 } from "@/components/AppShell";
 
 interface ContactRow {
@@ -103,8 +104,14 @@ export default function ContactsPage() {
 
   async function bulkDelete() {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} contact(s)? This can't be undone.`))
-      return;
+    const ok = await confirm({
+      title: `Delete ${selected.size} contact${selected.size === 1 ? "" : "s"}?`,
+      message:
+        "Selected contacts are permanently removed from the workspace. Their list and tag associations are dropped too. This can't be undone.",
+      confirmLabel: `Delete ${selected.size}`,
+      danger: true,
+    });
+    if (!ok) return;
     setError(null);
     const r = await fetch("/api/contacts/bulk", {
       method: "POST",

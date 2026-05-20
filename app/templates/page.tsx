@@ -37,6 +37,7 @@ interface T {
 type Filter = "all" | "visual" | "html" | "mine";
 
 export default function TemplatesGallery() {
+  const confirm = useConfirm();
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -89,7 +90,14 @@ export default function TemplatesGallery() {
   }
 
   async function deleteTemplate(t: T) {
-    if (!confirm(`Delete template "${t.name}"? This can't be undone.`)) return;
+    const ok = await confirm({
+      title: `Delete template "${t.name}"?`,
+      message:
+        "This template will be removed from the workspace library. Anyone with a draft based on it keeps their copy, but nobody else will be able to pick it from the gallery.",
+      confirmLabel: "Delete template",
+      danger: true,
+    });
+    if (!ok) return;
     const r = await fetch(`/api/templates/${t.id}`, { method: "DELETE" });
     if (r.ok) {
       setStatus(`Deleted "${t.name}".`);
