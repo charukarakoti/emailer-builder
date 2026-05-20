@@ -415,7 +415,21 @@ export default function SignatureEditor() {
   // `doc` is guaranteed non-null here — the early returns above bail when
   // it's still loading. `renderedHtml` and `byteSize` are computed by the
   // hooks above (which are called unconditionally).
-  const selected = doc.blocks.find((b) => b.id === selectedId) || null;
+  function findBlock(id: string | null): SignatureBlock | null {
+    if (!id) return null;
+    for (const b of doc.blocks) {
+      if (b.id === id) return b;
+      if (b.type === "row") {
+        const nested = b.columns
+          .flatMap((c) => c.blocks)
+          .find((cb) => cb.id === id);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  }
+
+  const selected = findBlock(selectedId);
   const sizeBad = byteSize > SIGNATURE_LIMITS.maxHtmlBytes;
   const widthBad =
     doc.theme.maxWidth < SIGNATURE_LIMITS.minWidthPx ||
@@ -481,8 +495,12 @@ export default function SignatureEditor() {
             </div>
           </Card>
 
-          {/* Middle: canvas + preview */}
-          <div className="space-y-4">
+          {/* Middle: canvas + preview.
+              `min-w-0` overrides CSS grid's implicit `min-width: auto`
+              so long unbreakable content (e.g. an image URL pasted into a
+              Banner block) doesn't blow out the 1fr track and push the
+              right-hand Properties panel off-screen. */}
+          <div className="space-y-4 min-w-0">
             <Card className="p-4">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
                 Canvas · drag blocks to reorder
@@ -755,7 +773,10 @@ function CanvasRow({
         </button>
       </div>
       <div
-        className="flex gap-2 p-2"
+        // `min-w-0` on the row's column container is the second half of
+        // the fix — without it, a flexbox child can grow to fit its own
+        // min-content (the URL) and ignore the percentage width.
+        className="flex gap-2 p-2 min-w-0"
         style={{ gap: `${block.gutter ?? 12}px` }}
       >
         {block.columns.map((col, i) => (
@@ -807,8 +828,11 @@ function ColumnDropZone({
     <div
       ref={setNodeRef}
       style={{ width: `${width}%` }}
+      // `min-w-0` + `overflow-hidden` ensure a Banner block's long URL
+      // (or any unbreakable text inside a child block) gets clipped
+      // instead of stretching the column past its declared width %.
       className={
-        "rounded-md border border-dashed p-1.5 min-h-[60px] transition " +
+        "rounded-md border border-dashed p-1.5 min-h-[60px] min-w-0 overflow-hidden transition " +
         (isOver
           ? "border-indigo-500 bg-indigo-50/60"
           : "border-slate-200 bg-white")
@@ -989,38 +1013,11 @@ function PropertiesPanel({
         </div>
       );
     case "name":
-      return (
-        <div className="space-y-3 text-sm">
-          <Field label="Text">
-            <input
-              value={block.text}
-              onChange={(e) => set({ text: e.target.value } as any)}
-              className="input"
-            />
-          </Field>
-          <Field label="Size (px)">
-            <input
-              type="number"
-              value={block.size ?? 16}
-              onChange={(e) => set({ size: Number(e.target.value) || 16 } as any)}
-              className="input"
-            />
-          </Field>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={block.bold}
-              onChange={(e) => set({ bold: e.target.checked } as any)}
-            />
-            Bold
-          </label>
-          <Style />
-        </div>
-      );
     case "title":
     case "company":
       return (
         <div className="space-y-3 text-sm">
+          <StyleBlock />
           <Field label="Text">
             <input
               value={block.text}
@@ -1028,7 +1025,7 @@ function PropertiesPanel({
               className="input"
             />
           </Field>
-          <Style />
+          <TypographyControls block={block} set={set} />
         </div>
       );
     case "contact":
@@ -1089,6 +1086,44 @@ function PropertiesPanel({
     case "social":
       return (
         <div className="space-y-3 text-sm">
+          <StyleBlock />
+          {/* Visual style + size for the whole row — applies to every chip.
+              filled = brand colour fill + white glyph (default)
+              circle = same as filled but pill-shaped
+              outline = white fill + brand-coloured border & glyph */}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Icon style">
+              <select
+                value={block.style ?? "filled"}
+                onChange={(e) =>
+                  set({ style: e.target.value as any } as any)
+                }
+                className="input"
+              >
+                <option value="filled">Filled</option>
+                <option value="circle">Circle</option>
+                <option value="outline">Outline</option>
+              </select>
+            </Field>
+            <Field label="Size (px)">
+              <input
+                type="number"
+                min={16}
+                max={48}
+                value={block.size ?? 24}
+                onChange={(e) =>
+                  set({
+                    size: Math.max(
+                      16,
+                      Math.min(48, Number(e.target.value) || 24)
+                    ),
+                  } as any)
+                }
+                className="input"
+              />
+            </Field>
+          </div>
+
           {block.networks.map((n, idx) => (
             <div key={idx} className="border border-slate-100 rounded p-2 space-y-2">
               <select
@@ -1216,6 +1251,48 @@ function PropertiesPanel({
               className="input"
             />
           </Field>
+          {/* Fixed width / height — leave blank to fall back to fluid
+              (100% width, auto height preserving aspect ratio). Both
+              values are emitted as HTML attributes AND inline CSS so the
+              size holds in Outlook desktop as well as Gmail / Apple Mail. */}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Width (px)">
+              <input
+                type="number"
+                min={0}
+                max={1200}
+                value={block.width ?? ""}
+                placeholder="auto"
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  set({
+                    width: Number.isFinite(n) && n > 0 ? Math.min(1200, n) : undefined,
+                  } as any);
+                }}
+                className="input"
+              />
+            </Field>
+            <Field label="Height (px)">
+              <input
+                type="number"
+                min={0}
+                max={1200}
+                value={block.height ?? ""}
+                placeholder="auto"
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  set({
+                    height: Number.isFinite(n) && n > 0 ? Math.min(1200, n) : undefined,
+                  } as any);
+                }}
+                className="input"
+              />
+            </Field>
+          </div>
+          <div className="text-xs text-slate-500">
+            Leave width or height blank to keep the image fluid (auto-fit
+            with preserved aspect ratio).
+          </div>
           <Style />
         </div>
       );
@@ -1418,6 +1495,122 @@ function StyleBlock() {
         border-color: rgb(99 102 241);
       }
     `}</style>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Shared typography controls — used by Name / Title / Company.       */
+/*                                                                      */
+/*  Surfaces every styling prop the renderer respects: size, colour,    */
+/*  weight (numeric CSS font-weight 100–900), italic, and line-height   */
+/*  (CSS unitless multiplier). Empty values fall back to the renderer's */
+/*  per-block defaults — so the user can leave anything blank.          */
+/* ------------------------------------------------------------------ */
+
+function TypographyControls({
+  block,
+  set,
+}: {
+  block: {
+    size?: number;
+    color?: string;
+    bold?: boolean;
+    italic?: boolean;
+    weight?: number;
+    lineHeight?: number;
+  };
+  set: (patch: Record<string, any>) => void;
+}) {
+  // Resolve the effective weight for the dropdown — explicit `weight`
+  // wins; otherwise the legacy `bold` toggle maps to 700.
+  const currentWeight =
+    typeof block.weight === "number"
+      ? block.weight
+      : block.bold
+      ? 700
+      : 400;
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Font size (px)">
+          <input
+            type="number"
+            min={8}
+            max={48}
+            value={block.size ?? ""}
+            placeholder="auto"
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              set({
+                size: Number.isFinite(n) && n > 0 ? Math.min(48, n) : undefined,
+              });
+            }}
+            className="input"
+          />
+        </Field>
+        <Field label="Line height">
+          <input
+            type="number"
+            min={0.8}
+            max={3}
+            step={0.05}
+            value={block.lineHeight ?? ""}
+            placeholder="1.45"
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              set({
+                lineHeight: Number.isFinite(n) && n > 0 ? n : undefined,
+              });
+            }}
+            className="input"
+          />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Weight">
+          <select
+            value={currentWeight}
+            onChange={(e) => {
+              const w = Number(e.target.value);
+              // Keep `bold` in sync so older saved docs round-trip cleanly.
+              set({ weight: w, bold: w >= 600 });
+            }}
+            className="input"
+          >
+            <option value={300}>Light · 300</option>
+            <option value={400}>Regular · 400</option>
+            <option value={500}>Medium · 500</option>
+            <option value={600}>Semibold · 600</option>
+            <option value={700}>Bold · 700</option>
+            <option value={800}>Extrabold · 800</option>
+            <option value={900}>Black · 900</option>
+          </select>
+        </Field>
+        <Field label="Color">
+          <input
+            type="color"
+            value={block.color || "#0f172a"}
+            onChange={(e) => set({ color: e.target.value })}
+            className="h-9 w-full border border-slate-200 rounded"
+          />
+        </Field>
+      </div>
+
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={!!block.italic}
+          onChange={(e) => set({ italic: e.target.checked })}
+        />
+        Italic
+      </label>
+      <div className="text-xs text-slate-500">
+        Leave size / line height blank to use the theme defaults. All
+        weight values render in Gmail, Outlook, and Apple Mail.
+      </div>
+    </>
   );
 }
 

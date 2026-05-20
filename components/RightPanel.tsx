@@ -371,6 +371,18 @@ export default function RightPanel() {
             />
           </Field>
         </div>
+        <Field label="Wrapper bg image">
+          <input
+            type="text"
+            className={input}
+            value={doc.meta.backgroundImage || ""}
+            onChange={(e) => updateMeta({ backgroundImage: e.target.value })}
+            placeholder="https://example.com/image.jpg"
+          />
+          <div className="text-[11px] text-slate-400 mt-1">
+            Set a background image for the full email wrapper.
+          </div>
+        </Field>
 
         <Section title="Frame" />
         <BorderControl

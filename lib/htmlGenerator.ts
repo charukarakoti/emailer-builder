@@ -392,6 +392,16 @@ export function generateEmailHtml(doc: EmailDocument): string {
       : "center";
   const innerBorder = borderToCss(meta.border);
   const innerRadius = safeRadius(meta.borderRadius);
+  const bgImage = meta.backgroundImage ? `url(${escAttr(meta.backgroundImage)})` : undefined;
+  const bodyStyle = inline({
+    margin: "0",
+    padding: "0",
+    backgroundColor: meta.backgroundColor,
+    backgroundImage: bgImage,
+    backgroundPosition: bgImage ? "top center" : undefined,
+    backgroundRepeat: bgImage ? "no-repeat" : undefined,
+    backgroundSize: bgImage ? "cover" : undefined,
+  });
   const innerStyle = inline({
     width: `${width}px`,
     maxWidth: "100%",
@@ -399,6 +409,10 @@ export function generateEmailHtml(doc: EmailDocument): string {
     borderCollapse: "collapse",
     border: innerBorder,
     borderRadius: innerRadius !== "0px" ? innerRadius : undefined,
+    backgroundImage: bgImage,
+    backgroundPosition: bgImage ? "top center" : undefined,
+    backgroundRepeat: bgImage ? "no-repeat" : undefined,
+    backgroundSize: bgImage ? "cover" : undefined,
   });
 
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -413,13 +427,13 @@ export function generateEmailHtml(doc: EmailDocument): string {
 <xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch><o:AllowPNG/></o:OfficeDocumentSettings></xml>
 <![endif]-->
 </head>
-<body bgcolor="${escAttr(meta.backgroundColor)}" style="margin:0;padding:0;background-color:${escAttr(meta.backgroundColor)};">
+<body${meta.backgroundImage ? ` background="${escAttr(meta.backgroundImage)}"` : ""} bgcolor="${escAttr(meta.backgroundColor)}" style="${bodyStyle}">
 ${preheader}
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="${escAttr(
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"${meta.backgroundImage ? ` background="${escAttr(meta.backgroundImage)}"` : ""} bgcolor="${escAttr(
     meta.backgroundColor
   )}" style="background-color:${escAttr(
     meta.backgroundColor
-  )};border-collapse:collapse;">
+  )};border-collapse:collapse;${bgImage ? `background-image:${bgImage};background-position:top center;background-repeat:no-repeat;background-size:cover;` : ""}">
 <tr><td align="${wrapperAlign}" valign="top" style="padding:0;">
 <!--[if mso]><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="${width}" align="${wrapperAlign}"><tr><td><![endif]-->
 <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="${width}" align="${wrapperAlign}" bgcolor="${escAttr(

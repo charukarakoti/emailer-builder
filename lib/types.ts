@@ -185,6 +185,7 @@ export interface EmailDocument {
     subject: string;
     preheader: string;
     backgroundColor: string;
+    backgroundImage?: string;
     contentBackground: string;
     contentWidth: number;
     alignment: Alignment;           // wrapper alignment center | left
@@ -298,6 +299,7 @@ export const newDocument = (): EmailDocument => ({
     subject: "Untitled Email",
     preheader: "",
     backgroundColor: "#f3f4f6",
+    backgroundImage: "",
     contentBackground: "#ffffff",
     contentWidth: 600,
     alignment: "center",

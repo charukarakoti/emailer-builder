@@ -25,9 +25,43 @@ export interface SignatureTheme {
  */
 export type SignatureLeafBlock =
   | { id: string; type: "avatar"; url: string; size: number; shape: "circle" | "square" | "rounded" }
-  | { id: string; type: "name"; text: string; bold: boolean; size?: number; color?: string }
-  | { id: string; type: "title"; text: string; size?: number; color?: string }
-  | { id: string; type: "company"; text: string; size?: number; color?: string }
+  // Typography blocks share the same set of optional styling props so the
+  // properties panel can render one shared control group for any of them.
+  | {
+      id: string;
+      type: "name";
+      text: string;
+      bold: boolean;
+      size?: number;
+      color?: string;
+      italic?: boolean;
+      /** CSS font-weight (100–900). When set, overrides `bold`. */
+      weight?: number;
+      /** Multiplier (1.0–2.5). Translated to inline `line-height: N`. */
+      lineHeight?: number;
+    }
+  | {
+      id: string;
+      type: "title";
+      text: string;
+      size?: number;
+      color?: string;
+      bold?: boolean;
+      italic?: boolean;
+      weight?: number;
+      lineHeight?: number;
+    }
+  | {
+      id: string;
+      type: "company";
+      text: string;
+      size?: number;
+      color?: string;
+      bold?: boolean;
+      italic?: boolean;
+      weight?: number;
+      lineHeight?: number;
+    }
   | {
       id: string;
       type: "contact";
@@ -63,7 +97,18 @@ export type SignatureLeafBlock =
       /** Icon pixel size (square). Default 24. */
       size?: number;
     }
-  | { id: string; type: "banner"; url: string; link?: string; alt?: string }
+  | {
+      id: string;
+      type: "banner";
+      url: string;
+      link?: string;
+      alt?: string;
+      /** Fixed width in pixels. Defaults to theme.maxWidth when unset. */
+      width?: number;
+      /** Fixed height in pixels. When unset, the image preserves its
+       *  aspect ratio (height:auto). */
+      height?: number;
+    }
   | { id: string; type: "divider"; color?: string; thickness?: number }
   | { id: string; type: "spacer"; height: number }
   | { id: string; type: "custom"; html: string };
@@ -116,19 +161,40 @@ export const DEFAULT_THEME: SignatureTheme = {
 };
 
 // Available font families for signature themes
+/**
+ * Email-safe font stacks. Each entry's `value` is what gets baked into
+ * the generated HTML — always a multi-step fallback so the signature
+ * still reads sensibly if the named face isn't installed on the
+ * recipient's machine. Web-only faces (Google Fonts, etc.) are
+ * intentionally NOT here: they don't render in Outlook desktop without
+ * embedded CSS, and the email renderer can't ship @import safely.
+ */
 export const AVAILABLE_FONTS = [
+  // Sans-serif (the most reliable category for email).
   { label: "Arial", value: 'Arial, Helvetica, sans-serif' },
   { label: "Helvetica", value: 'Helvetica, Arial, sans-serif' },
-  { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
-  { label: "Trebuchet", value: '"Trebuchet MS", Arial, sans-serif' },
+  { label: "Trebuchet MS", value: '"Trebuchet MS", Arial, sans-serif' },
   { label: "Verdana", value: 'Verdana, Geneva, sans-serif' },
-  { label: "Courier", value: '"Courier New", Courier, monospace' },
-  { label: "Tahoma", value: 'Tahoma, sans-serif' },
+  { label: "Tahoma", value: 'Tahoma, Geneva, sans-serif' },
+  { label: "Segoe UI", value: '"Segoe UI", Arial, sans-serif' },
+  { label: "Lucida Sans", value: '"Lucida Sans Unicode", "Lucida Grande", sans-serif' },
+  { label: "Geneva", value: 'Geneva, Verdana, sans-serif' },
+  { label: "Calibri", value: 'Calibri, Arial, sans-serif' },
+  // Serif.
+  { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
   { label: "Times New Roman", value: '"Times New Roman", Times, serif' },
-  { label: "Comic Sans", value: '"Comic Sans MS", cursive' },
-  { label: "Impact", value: 'Impact, sans-serif' },
-  { label: "Palatino", value: 'Palatino, "Palatino Linotype", serif' },
-  { label: "Garamond", value: 'Garamond, serif' },
+  { label: "Palatino", value: '"Palatino Linotype", Palatino, serif' },
+  { label: "Book Antiqua", value: '"Book Antiqua", Palatino, serif' },
+  { label: "Garamond", value: 'Garamond, "Times New Roman", serif' },
+  { label: "Cambria", value: 'Cambria, Georgia, serif' },
+  // Display.
+  { label: "Arial Black", value: '"Arial Black", Gadget, sans-serif' },
+  { label: "Impact", value: "Impact, Charcoal, sans-serif" },
+  { label: "Comic Sans", value: '"Comic Sans MS", "Comic Sans", cursive' },
+  // Monospace.
+  { label: "Courier New", value: '"Courier New", Courier, monospace' },
+  { label: "Lucida Console", value: '"Lucida Console", Monaco, monospace' },
+  { label: "Consolas", value: 'Consolas, "Courier New", monospace' },
 ];
 
 export function newSignatureDoc(): SignatureDoc {
@@ -211,34 +277,76 @@ function renderAvatar(b: Extract<SignatureBlock, { type: "avatar" }>, t: Signatu
   );
 }
 
-function renderName(b: Extract<SignatureBlock, { type: "name" }>, t: SignatureTheme): string {
-  const size = b.size ?? t.fontSize + 3;
-  const color = b.color ?? t.text;
-  return (
-    rowOpen(t) +
-    `<span style="font-size:${size}px;color:${color};${b.bold ? "font-weight:700;" : "font-weight:400;"}">${esc(b.text)}</span>` +
-    rowClose
-  );
+/**
+ * Build the shared CSS string for a typography block (name/title/company).
+ * Reads the optional `bold`/`weight`/`italic`/`lineHeight` props and
+ * emits inline CSS that holds in Outlook (which ignores shorthand `font`
+ * but honours individual props like `font-weight` and `line-height`).
+ */
+function typographyCss(
+  b: {
+    size?: number;
+    color?: string;
+    bold?: boolean;
+    italic?: boolean;
+    weight?: number;
+    lineHeight?: number;
+  },
+  defaults: { size: number; color: string; weight: number }
+): string {
+  const size = b.size ?? defaults.size;
+  const color = b.color ?? defaults.color;
+  // Explicit weight wins over the legacy bold boolean.
+  const weight =
+    typeof b.weight === "number"
+      ? b.weight
+      : b.bold === true
+      ? 700
+      : b.bold === false
+      ? 400
+      : defaults.weight;
+  const lh =
+    typeof b.lineHeight === "number" && b.lineHeight > 0
+      ? `line-height:${b.lineHeight};`
+      : "";
+  const italic = b.italic ? "font-style:italic;" : "";
+  return `font-size:${size}px;color:${color};font-weight:${weight};${italic}${lh}`;
 }
 
-function renderTitle(b: Extract<SignatureBlock, { type: "title" }>, t: SignatureTheme): string {
-  const size = b.size ?? t.fontSize;
-  const color = b.color ?? t.muted;
-  return (
-    rowOpen(t) +
-    `<span style="font-size:${size}px;color:${color};">${esc(b.text)}</span>` +
-    rowClose
-  );
+function renderName(
+  b: Extract<SignatureBlock, { type: "name" }>,
+  t: SignatureTheme
+): string {
+  const css = typographyCss(b, {
+    size: t.fontSize + 3,
+    color: t.text,
+    weight: b.bold ? 700 : 400,
+  });
+  return rowOpen(t) + `<span style="${css}">${esc(b.text)}</span>` + rowClose;
 }
 
-function renderCompany(b: Extract<SignatureBlock, { type: "company" }>, t: SignatureTheme): string {
-  const size = b.size ?? t.fontSize;
-  const color = b.color ?? t.text;
-  return (
-    rowOpen(t) +
-    `<span style="font-size:${size}px;color:${color};font-weight:600;">${esc(b.text)}</span>` +
-    rowClose
-  );
+function renderTitle(
+  b: Extract<SignatureBlock, { type: "title" }>,
+  t: SignatureTheme
+): string {
+  const css = typographyCss(b, {
+    size: t.fontSize,
+    color: t.muted,
+    weight: 400,
+  });
+  return rowOpen(t) + `<span style="${css}">${esc(b.text)}</span>` + rowClose;
+}
+
+function renderCompany(
+  b: Extract<SignatureBlock, { type: "company" }>,
+  t: SignatureTheme
+): string {
+  const css = typographyCss(b, {
+    size: t.fontSize,
+    color: t.text,
+    weight: 600,
+  });
+  return rowOpen(t) + `<span style="${css}">${esc(b.text)}</span>` + rowClose;
 }
 
 function renderContact(b: Extract<SignatureBlock, { type: "contact" }>, t: SignatureTheme): string {
@@ -385,10 +493,34 @@ function renderSocial(
   );
 }
 
-function renderBanner(b: Extract<SignatureBlock, { type: "banner" }>, t: SignatureTheme): string {
-  const img = `<img src="${esc(b.url)}" alt="${esc(b.alt || "")}" width="${t.maxWidth}" style="display:block;width:100%;max-width:${t.maxWidth}px;height:auto;border:0;outline:none;text-decoration:none;" />`;
-  const inner = b.link ? `<a href="${esc(b.link)}" style="text-decoration:none;">${img}</a>` : img;
-  return rowOpen(t) + `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td style="padding:8px 0;">${inner}</td></tr></table>` + rowClose;
+function renderBanner(
+  b: Extract<SignatureBlock, { type: "banner" }>,
+  t: SignatureTheme
+): string {
+  // Honour explicit width/height when set; otherwise fall back to 100%
+  // fluid + auto-height (preserves the image's natural aspect ratio).
+  // Both the HTML width/height attributes AND inline CSS are emitted —
+  // Outlook on Windows reads the attributes, Gmail / Apple Mail read the
+  // CSS. This is the standard bulletproof-image recipe.
+  const fixedWidth = !!(b.width && b.width > 0);
+  const fixedHeight = !!(b.height && b.height > 0);
+
+  const widthAttr = fixedWidth ? `width="${b.width}"` : `width="100%"`;
+  const heightAttr = fixedHeight ? ` height="${b.height}"` : "";
+  const widthCss = fixedWidth
+    ? `width:${b.width}px;max-width:100%;`
+    : `width:100%;max-width:100%;`;
+  const heightCss = fixedHeight ? `height:${b.height}px;` : `height:auto;`;
+
+  const img = `<img src="${esc(b.url)}" alt="${esc(b.alt || "")}" ${widthAttr}${heightAttr} style="display:block;${widthCss}${heightCss}border:0;outline:none;text-decoration:none;" />`;
+  const inner = b.link
+    ? `<a href="${esc(b.link)}" style="display:block;text-decoration:none;line-height:0;">${img}</a>`
+    : img;
+  return (
+    rowOpen(t) +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td style="padding:8px 0;">${inner}</td></tr></table>` +
+    rowClose
+  );
 }
 
 function renderDivider(b: Extract<SignatureBlock, { type: "divider" }>, t: SignatureTheme): string {
@@ -452,11 +584,13 @@ function renderRow(b: SignatureRowBlock, t: SignatureTheme): string {
   const valign = b.verticalAlign ?? "top";
   const cells = b.columns
     .map((col, i) => {
-      const inner = col.blocks.map((c) => renderLeaf(c, t)).join("");
+      const inner = col.blocks.length
+        ? col.blocks.map((c) => renderLeaf(c, t)).join("")
+        : `<tr><td style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td></tr>`;
       const padRight = i < b.columns.length - 1 ? gutter : 0;
       const w = widths[i];
-      return `<td width="${w.toFixed(2)}%" valign="${valign}" style="vertical-align:${valign};width:${w.toFixed(2)}%;padding-right:${padRight}px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">${inner}</table>
+      return `<td width="${w.toFixed(2)}%" valign="${valign}" style="vertical-align:${valign};width:${w.toFixed(2)}%;padding-right:${padRight}px;word-break:break-word;overflow-wrap:break-word;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;table-layout:fixed;">${inner}</table>
       </td>`;
     })
     .join("");
@@ -479,7 +613,7 @@ export function renderSignatureHtml(doc: SignatureDoc): string {
     .map((b) => (b.type === "row" ? renderRow(b, t) : renderLeaf(b, t)))
     .join("");
   return [
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:${t.maxWidth}px;font-family:${t.fontFamily};color:${t.text};">`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;width:100%;max-width:${t.maxWidth}px;font-family:${t.fontFamily};color:${t.text};">`,
     rows,
     `</table>`,
   ].join("");

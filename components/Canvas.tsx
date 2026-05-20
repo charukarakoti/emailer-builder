@@ -485,7 +485,15 @@ export default function Canvas() {
   return (
     <main
       className="flex-1 overflow-y-auto py-8 px-10"
-      style={{ backgroundColor: doc.meta.backgroundColor }}
+      style={{
+        backgroundColor: doc.meta.backgroundColor,
+        backgroundImage: doc.meta.backgroundImage
+          ? `url(${doc.meta.backgroundImage})`
+          : undefined,
+        backgroundSize: doc.meta.backgroundImage ? "cover" : undefined,
+        backgroundRepeat: doc.meta.backgroundImage ? "no-repeat" : undefined,
+        backgroundPosition: doc.meta.backgroundImage ? "center top" : undefined,
+      }}
       onClick={() =>
         select({ sectionId: null, columnIndex: null, blockId: null })
       }

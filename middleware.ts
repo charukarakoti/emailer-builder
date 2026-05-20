@@ -14,8 +14,21 @@ const SESSION_COOKIE = "eb_session";
 const PUBLIC_PATHS = ["/login", "/signup"];
 
 export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, searchParams } = req.nextUrl;
   const hasSession = !!req.cookies.get(SESSION_COOKIE)?.value;
+
+  // Bare `/` is no longer the default landing page — anyone visiting
+  // http://localhost:3000/ is sent to /dashboard. The builder is still
+  // reachable via `/?template=<id>` or `/?fresh=1` (used by the chooser
+  // modal), so the redirect only fires when there are no params.
+  if (
+    pathname === "/" &&
+    hasSession &&
+    !searchParams.has("fresh") &&
+    !searchParams.has("template")
+  ) {
+    return NextResponse.redirect(new URL("/dashboard", req.url));
+  }
 
   // Public assets / Next internals / public pages.
   if (
