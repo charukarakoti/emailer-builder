@@ -26,6 +26,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell, {
   Card,
+  DangerButton,
   GhostButton,
   PrimaryButton,
   useConfirm,
@@ -459,13 +460,12 @@ export default function MediaPage() {
             >
               📁 Add to folder ▾
             </button>
-            <button
+            <DangerButton
               onClick={deleteSelected}
               disabled={selected.size === 0}
-              className="text-sm inline-flex items-center gap-1 px-2 py-1 rounded text-rose-600 hover:bg-rose-50 disabled:text-slate-400 disabled:hover:bg-transparent"
             >
-              🗑 Delete
-            </button>
+              Delete
+            </DangerButton>
             <div className="ml-auto inline-flex rounded-md border border-slate-200 bg-white overflow-hidden">
               <button
                 onClick={() => setView("list")}
@@ -889,12 +889,7 @@ function PreviewModal({
           </div>
           <div className="flex items-center gap-2">
             <GhostButton onClick={onCopy}>Copy URL</GhostButton>
-            <button
-              onClick={onDelete}
-              className="h-9 px-3 rounded-lg text-sm text-rose-600 hover:bg-rose-50"
-            >
-              Delete
-            </button>
+            <DangerButton onClick={onDelete}>Delete</DangerButton>
             <button
               onClick={onClose}
               className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-100"

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell, {
   Card,
+  DangerButton,
   EmptyState,
   GhostButton,
   PrimaryButton,
@@ -139,6 +140,28 @@ export default function SignaturesListPage() {
   );
 }
 
+// Small trash glyph that lives next to icon-only DangerButtons — kept
+// local to this page so the AppShell export surface stays clean.
+function TrashGlyph() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
 function SignatureCard({
   s,
   onOpen,
@@ -185,13 +208,9 @@ function SignatureCard({
         </div>
         <GhostButton onClick={onOpen}>Edit</GhostButton>
         {s.isMine && (
-          <button
-            onClick={onDelete}
-            className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-slate-200 text-rose-600 hover:bg-rose-50"
-            title="Delete"
-          >
-            🗑
-          </button>
+          <DangerButton iconOnly onClick={onDelete} title="Delete signature">
+            <TrashGlyph />
+          </DangerButton>
         )}
       </div>
     </Card>

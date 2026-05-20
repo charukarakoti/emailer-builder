@@ -415,8 +415,12 @@ export default function SignatureEditor() {
   // `doc` is guaranteed non-null here — the early returns above bail when
   // it's still loading. `renderedHtml` and `byteSize` are computed by the
   // hooks above (which are called unconditionally).
+  // TypeScript can't prove `doc` is non-null inside this nested
+  // function — function declarations are hoisted and the compiler doesn't
+  // narrow type through the outer early-return. An explicit guard inside
+  // the function makes the build pass without changing runtime behaviour.
   function findBlock(id: string | null): SignatureBlock | null {
-    if (!id) return null;
+    if (!id || !doc) return null;
     for (const b of doc.blocks) {
       if (b.id === id) return b;
       if (b.type === "row") {

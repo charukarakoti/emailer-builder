@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell, {
+  DangerButton,
   GhostButton,
   PrimaryButton,
   useConfirm,
@@ -233,12 +234,7 @@ export default function ContactsPage() {
               <span className="text-blue-900 font-medium">
                 {selected.size} selected
               </span>
-              <button
-                onClick={bulkDelete}
-                className="text-red-600 hover:underline"
-              >
-                Delete
-              </button>
+              <DangerButton onClick={bulkDelete}>Delete</DangerButton>
               <button
                 onClick={() => setSelected(new Set())}
                 className="text-gray-500 hover:underline"

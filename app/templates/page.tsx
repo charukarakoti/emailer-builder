@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell, {
   Card,
+  DangerButton,
   GhostButton,
   PrimaryButton,
   useConfirm,
