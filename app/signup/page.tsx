@@ -4,11 +4,22 @@
 // /signup — create account + a default team in one step.
 // =============================================================================
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
+// useSearchParams must live inside a Suspense boundary for Next.js 14's
+// static prerender to succeed. The actual form is split into <SignupForm>
+// below.
 export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupForm />
+    </Suspense>
+  );
+}
+
+function SignupForm() {
   const router = useRouter();
   const search = useSearchParams();
   const inviteCode = search.get("invite") || "";

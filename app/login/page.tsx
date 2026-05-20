@@ -5,11 +5,22 @@
 // Redirects to "/" on success. If there's a ?next= param, redirects there.
 // =============================================================================
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
+// Next.js 14 errors out at build time if a prerendered page reads search
+// params without a Suspense boundary. We wrap the body in <Suspense> so
+// the prerender succeeds; the actual form lives in <LoginForm> below.
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
   // Default landing page after sign-in is the SaaS dashboard. The legacy

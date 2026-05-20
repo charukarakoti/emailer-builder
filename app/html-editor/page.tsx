@@ -15,7 +15,7 @@
 // modal all pick it up automatically.
 // =============================================================================
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell, {
   Card,
@@ -53,7 +53,18 @@ const STARTER_HTML = `<!doctype html>
   </body>
 </html>`;
 
+// useSearchParams must be wrapped in <Suspense> for Next.js 14's static
+// prerender. Splitting the wrapper from the editor body keeps the
+// build clean.
 export default function HtmlEditorPage() {
+  return (
+    <Suspense fallback={null}>
+      <HtmlEditor />
+    </Suspense>
+  );
+}
+
+function HtmlEditor() {
   const search = useSearchParams();
   const templateId = search.get("template");
 
