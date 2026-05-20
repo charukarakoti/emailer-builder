@@ -21,6 +21,7 @@ import AppShell, {
   Card,
   GhostButton,
   PrimaryButton,
+  useConfirm,
 } from "@/components/AppShell";
 import NewTemplateModal from "@/components/NewTemplateModal";
 

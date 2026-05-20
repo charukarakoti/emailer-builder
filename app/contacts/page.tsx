@@ -56,6 +56,7 @@ export default function ContactsPage() {
   const [showImport, setShowImport] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   async function refresh() {
     setLoading(true);
