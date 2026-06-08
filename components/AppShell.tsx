@@ -102,6 +102,7 @@ export function useConfirm(): ConfirmFn {
 interface Me {
   user: { email: string; name: string | null } | null;
   activeTeam: { id: string; name: string } | null;
+  teams: { id: string; name: string; role: "OWNER" | "MEMBER" }[];
 }
 
 const NAV: { href: string; label: string; icon: string; soon?: boolean }[] = [
@@ -138,6 +139,10 @@ export default function AppShell({
   // it via the context below.
   const [chooserOpen, setChooserOpen] = useState(false);
 
+  const isOwner = me?.teams.some(
+    (t) => t.id === me?.activeTeam?.id && t.role === "OWNER"
+  );
+
   // Confirm dialog — controlled here so any descendant can summon it via
   // `useConfirm()`. The resolver is stashed on a ref so the buttons can
   // settle the outstanding promise when clicked.
@@ -160,7 +165,7 @@ export default function AppShell({
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then(setMe)
-      .catch(() => setMe({ user: null, activeTeam: null }));
+      .catch(() => setMe({ user: null, activeTeam: null, teams: [] }));
   }, []);
 
   // Close the profile menu when the user clicks elsewhere.
@@ -258,6 +263,30 @@ export default function AppShell({
               </Link>
             );
           })}
+          {isOwner && (
+            <Link
+              href="/admin"
+              onClick={() => setOpen(false)}
+              className={
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition " +
+                (pathname === "/admin" || pathname.startsWith("/admin")
+                  ? "bg-indigo-50 text-indigo-700 font-medium"
+                  : "text-slate-600 hover:bg-slate-100")
+              }
+            >
+              <span
+                className={
+                  "inline-flex items-center justify-center w-5 text-base " +
+                  (pathname === "/admin" || pathname.startsWith("/admin")
+                    ? "text-indigo-600"
+                    : "text-slate-400")
+                }
+              >
+                🛡
+              </span>
+              <span>Admin</span>
+            </Link>
+          )}
         </nav>
 
         <div className="absolute left-3 right-3 bottom-3">

@@ -19,13 +19,14 @@ export function middleware(req: NextRequest) {
 
   // Bare `/` is no longer the default landing page — anyone visiting
   // http://localhost:3000/ is sent to /dashboard. The builder is still
-  // reachable via `/?template=<id>` or `/?fresh=1` (used by the chooser
-  // modal), so the redirect only fires when there are no params.
+  // reachable via `/?template=<id>`, `/?campaign=<id>` or `/?fresh=1`, so
+  // the redirect only fires when there are no matching params.
   if (
     pathname === "/" &&
     hasSession &&
     !searchParams.has("fresh") &&
-    !searchParams.has("template")
+    !searchParams.has("template") &&
+    !searchParams.has("campaign")
   ) {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }

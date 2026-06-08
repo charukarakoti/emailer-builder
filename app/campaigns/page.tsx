@@ -2,15 +2,14 @@
 
 // =============================================================================
 // /campaigns — campaign list with status filter, search and per-row actions.
-// "+ New campaign" leads to the builder; the campaign itself is captured by
-// the existing Save / Send flow in the editor. Send/Schedule wizard is part
-// of Phase 3 of the roadmap.
+// + New campaign opens a campaign-specific builder flow. Campaign drafts store
+// their own email content so edits do not mutate the original template.
 // =============================================================================
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import AppShell, {
   Card,
-  EmptyState,
   GhostButton,
   PrimaryButton,
   StatCard,
@@ -38,6 +37,7 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 export default function CampaignsPage() {
+  const router = useRouter();
   const [rows, setRows] = useState<Camp[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -141,7 +141,9 @@ export default function CampaignsPage() {
             </div>
             {rows.length === 0 && (
               <div className="mt-3">
-                <PrimaryButton href="/">Open builder</PrimaryButton>
+                <PrimaryButton onClick={() => setShowNew(true)}>
+                  Open builder
+                </PrimaryButton>
               </div>
             )}
           </div>
@@ -162,14 +164,22 @@ export default function CampaignsPage() {
               <tbody>
                 {filtered.map((c) => (
                   <tr
-                    key={c.id}
-                    className="border-b border-slate-100 hover:bg-slate-50"
-                  >
+                      key={c.id}
+                      className="border-b border-slate-100 hover:bg-slate-50"
+                    >
                     <td className="py-2 pr-3">
-                      <div className="font-medium">{c.name}</div>
+                      <a href={`/?campaign=${encodeURIComponent(c.id)}`} className="font-medium hover:underline block">
+                        {c.name}
+                      </a>
                       <div className="text-xs text-slate-500 truncate max-w-md">
                         {c.subject || "(no subject)"}
                       </div>
+                      <a
+                        href={`/?campaign=${encodeURIComponent(c.id)}`}
+                        className="text-xs text-indigo-600 hover:underline mt-1 inline-block"
+                      >
+                        Edit draft
+                      </a>
                     </td>
                     <td className="py-2 pr-3">
                       <span
@@ -203,46 +213,122 @@ export default function CampaignsPage() {
         )}
       </Card>
 
-      {showNew && (
-        <NewCampaignDialog
-          onClose={() => setShowNew(false)}
-          onSaved={async () => {
-            setShowNew(false);
-            await refresh();
-          }}
-        />
-      )}
+      {showNew && <NewCampaignDialog onClose={() => setShowNew(false)} />}
     </AppShell>
   );
 }
 
 function NewCampaignDialog({
   onClose,
-  onSaved,
 }: {
   onClose: () => void;
-  onSaved: () => void;
 }) {
+  const router = useRouter();
+  const [step, setStep] = useState<"choice" | "form">("choice");
+  const [mode, setMode] = useState<"blank" | "template">("blank");
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>(
+    []
+  );
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState("");
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function save() {
-    setSaving(true);
+  useEffect(() => {
+    if (step === "form" && mode === "template") {
+      void loadTemplates();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, mode]);
+
+  async function loadTemplates() {
+    setLoadingTemplates(true);
+    try {
+      const r = await fetch("/api/templates");
+      const data = await r.json();
+      setTemplates(data.templates || []);
+    } catch {
+      setTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }
+
+  function start(mode: "blank" | "template") {
+    setMode(mode);
+    setStep("form");
     setError(null);
-    const r = await fetch("/api/campaigns", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, subject }),
-    });
-    const data = await r.json();
-    setSaving(false);
-    if (!r.ok) {
-      setError(data.error || "Failed");
+    if (mode === "template") {
+      void loadTemplates();
+    }
+  }
+
+  function reset() {
+    setStep("choice");
+    setMode("blank");
+    setSelectedTemplate("");
+    setName("");
+    setSubject("");
+    setError(null);
+  }
+
+  async function createCampaign() {
+    if (!name.trim()) {
+      setError("Campaign name is required.");
       return;
     }
-    onSaved();
+    if (mode === "template" && !selectedTemplate) {
+      setError("Please choose a template to continue.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      // For template-mode we do NOT create a campaign immediately. Instead
+      // navigate to the builder with the chosen template and the desired
+      // campaign name/subject in the URL so the user can edit and then
+      // explicitly create/save the campaign from the builder.
+      if (mode === "template") {
+        onClose();
+        reset();
+        const url = new URL(window.location.href);
+        url.pathname = "/";
+        url.searchParams.set("template", selectedTemplate);
+        url.searchParams.set("campaignName", name.trim());
+        url.searchParams.set("campaignSubject", subject.trim());
+        router.push(url.toString());
+        return;
+      }
+
+      // Blank mode: create campaign immediately and open builder for editing.
+      const body: Record<string, unknown> = {
+        name: name.trim(),
+        subject: subject.trim(),
+      };
+      const r = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        throw new Error(data.error || "Unable to create campaign.");
+      }
+      const campaignId = data.campaign?.id;
+      if (!campaignId) {
+        throw new Error("Campaign created without an ID.");
+      }
+      onClose();
+      reset();
+      router.push(`/?campaign=${encodeURIComponent(campaignId)}`);
+    } catch (err: any) {
+      setError(err?.message || "Unable to create campaign.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -251,43 +337,137 @@ function NewCampaignDialog({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-xl p-5 w-full max-w-md"
+        className="bg-white rounded-xl shadow-xl p-5 w-full max-w-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="font-semibold mb-3">New campaign</div>
-        <div className="space-y-3 text-sm">
-          <label className="block">
-            <span className="block text-slate-600 mb-1">Internal name</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Q4 product launch"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block">
-            <span className="block text-slate-600 mb-1">Subject line</span>
-            <input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="What recipients see in their inbox"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-            />
-          </label>
-          <div className="text-xs text-slate-500">
-            Saving here creates a <b>draft</b>. Design the email in the
-            builder and use Save / Send to publish.
-          </div>
-          {error && (
-            <div className="text-sm text-red-600">{error}</div>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 mt-4">
-          <GhostButton onClick={onClose}>Cancel</GhostButton>
-          <PrimaryButton onClick={save} disabled={saving || !name}>
-            {saving ? "…" : "Create draft"}
-          </PrimaryButton>
-        </div>
+        {step === "choice" ? (
+          <>
+            <div className="font-semibold mb-3">Open builder</div>
+            <div className="text-sm text-slate-600 mb-4">
+              Choose how you want to start this campaign.
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                onClick={() => start("template")}
+                className="rounded-2xl border border-slate-200 p-5 text-left hover:border-indigo-400 hover:shadow-sm transition"
+              >
+                <div className="text-indigo-600 font-semibold mb-2">
+                  Template
+                </div>
+                <div className="text-sm text-slate-600">
+                  Pick an existing template from the Templates section and
+                  use it inside this campaign. Changes made here will stay in
+                  the campaign draft and won't modify the original template.
+                </div>
+              </button>
+              <button
+                onClick={() => start("blank")}
+                className="rounded-2xl border border-slate-200 p-5 text-left hover:border-indigo-400 hover:shadow-sm transition"
+              >
+                <div className="text-indigo-600 font-semibold mb-2">
+                  Blank
+                </div>
+                <div className="text-sm text-slate-600">
+                  Start from scratch with an empty builder. When saved, the
+                  campaign will be stored under Campaigns.
+                </div>
+              </button>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <GhostButton onClick={onClose}>Cancel</GhostButton>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="font-semibold text-lg">
+                  {mode === "template"
+                    ? "New campaign from template"
+                    : "New blank campaign"}
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  Enter a campaign name and subject. The draft will open in
+                  the builder immediately.
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  reset();
+                }}
+                className="text-sm text-slate-500 hover:text-slate-700"
+              >
+                ← Back
+              </button>
+            </div>
+            <div className="space-y-4 text-sm">
+              {mode === "template" && (
+                <label className="block">
+                  <span className="block text-slate-600 mb-1">
+                    Template
+                  </span>
+                  <select
+                    value={selectedTemplate}
+                    onChange={(e) => setSelectedTemplate(e.target.value)}
+                    disabled={loadingTemplates}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">Select a template</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                  {loadingTemplates && (
+                    <div className="mt-2 text-xs text-slate-400">
+                      Loading templates…
+                    </div>
+                  )}
+                  {!loadingTemplates && templates.length === 0 && (
+                    <div className="mt-2 text-xs text-rose-600">
+                      No templates available. Add templates in the Templates
+                      section first.
+                    </div>
+                  )}
+                </label>
+              )}
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Campaign name</span>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Q4 product launch"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Subject line</span>
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="What recipients see in their inbox"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </label>
+              {error && (
+                <div className="text-sm text-rose-600">{error}</div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <GhostButton onClick={onClose}>Cancel</GhostButton>
+              <PrimaryButton
+                onClick={createCampaign}
+                disabled={
+                  saving ||
+                  (mode === "template" && templates.length === 0)
+                }
+              >
+                {saving ? "Opening…" : "Open builder"}
+              </PrimaryButton>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

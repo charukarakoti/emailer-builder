@@ -302,7 +302,7 @@ function TemplateCard({
             href={useHref}
             className="flex-1 text-center text-sm px-3 py-1.5 rounded-md bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
           >
-            Use
+            Open
           </a>
           <div className="relative">
             <button
@@ -481,7 +481,7 @@ function PreviewModal({
               }
               className="h-9 inline-flex items-center px-3 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition"
             >
-              Use this template
+              Open in editor
             </a>
             <button
               onClick={onClose}

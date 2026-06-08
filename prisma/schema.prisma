@@ -282,6 +282,7 @@ model Campaign {
   fromEmail   String?
   replyTo     String?
   templateId  String?
+  doc         String?
   // "draft" | "scheduled" | "sending" | "sent" | "failed" | "canceled"
   status      String   @default("draft")
   // ISO timestamp for scheduled send. Null when sending immediately.

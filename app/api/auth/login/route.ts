@@ -8,6 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { logActivity } from "@/lib/activity";
 import {
   verifyPassword,
   createSession,
@@ -54,6 +55,14 @@ export async function POST(req: Request) {
       activeTeam?.id ?? null
     );
     await setSessionCookie(token, expiresAt);
+
+    if (activeTeam) {
+      void logActivity({
+        teamId: activeTeam.id,
+        userId: user.id,
+        action: "user.logged_in",
+      });
+    }
 
     return NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name },

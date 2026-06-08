@@ -39,17 +39,54 @@ export default function Builder() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const templateId = params.get("template");
+    const campaignId = params.get("campaign");
     const fresh = params.get("fresh") === "1";
 
-    // ?fresh=1 (from the chooser modal "New template" flow) → wipe the
-    // autosaved draft and DON'T hydrate. The zustand store's initial
-    // `doc: newDocument()` already gives a blank canvas, so we just have to
-    // clear localStorage and strip the param.
     if (fresh) {
       clearSaved();
       const url = new URL(window.location.href);
       url.searchParams.delete("fresh");
       window.history.replaceState({}, "", url.toString());
+      return;
+    }
+
+    // Load campaign first (may have doc or link to template)
+    if (campaignId) {
+      clearSaved();
+      fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`)
+        .then((r) => r.json())
+        .then(async (data) => {
+          if (!data?.campaign) return;
+
+          // If campaign has its own doc, use it
+          if (data.campaign.doc) {
+            setDoc(JSON.parse(JSON.stringify(data.campaign.doc)));
+            return;
+          }
+
+          // Otherwise, if campaign references a template, load that
+          if (data.campaign.templateId) {
+            const templateResponse = await fetch(
+              `/api/templates/${encodeURIComponent(data.campaign.templateId)}`
+            );
+            const templateData = await templateResponse.json();
+            if (templateData?.template?.doc) {
+              setDoc(JSON.parse(JSON.stringify(templateData.template.doc)));
+            }
+            return;
+          }
+
+          // Blank campaign - already has newDocument()
+        })
+        .catch(() => {
+          /* fall back to blank canvas */
+        })
+        .finally(() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("campaign");
+          url.searchParams.delete("template");
+          window.history.replaceState({}, "", url.toString());
+        });
       return;
     }
 
@@ -59,7 +96,6 @@ export default function Builder() {
         .then((r) => r.json())
         .then((data) => {
           if (data?.template?.doc) {
-            // Deep-clone so subsequent edits don't mutate the cached row.
             setDoc(JSON.parse(JSON.stringify(data.template.doc)));
           }
         })
@@ -67,13 +103,13 @@ export default function Builder() {
           /* fall back silently — user can pick from dropdown */
         })
         .finally(() => {
-          // Drop the query param so reloads don't re-trigger the fetch.
           const url = new URL(window.location.href);
           url.searchParams.delete("template");
           window.history.replaceState({}, "", url.toString());
         });
       return;
     }
+
     const saved = loadState();
     if (saved) restoreState(saved);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -44,6 +44,7 @@ export async function POST(req: Request) {
       fromName?: string;
       fromEmail?: string;
       replyTo?: string;
+      doc?: unknown;
     };
     const name = (body.name || "").trim();
     if (!name) {
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
         fromName: body.fromName?.trim() || null,
         fromEmail: body.fromEmail?.trim() || null,
         replyTo: body.replyTo?.trim() || null,
+        doc: body.doc ? JSON.stringify(body.doc) : null,
       },
     });
     return { campaign };

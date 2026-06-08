@@ -23,6 +23,7 @@ import {
   EmailConfigError,
 } from "@/lib/email/provider";
 import { generateEmailHtml } from "@/lib/htmlGenerator";
+import { parseRecipients, isValidRecipient } from "@/lib/email/recipients";
 import type { EmailDocument } from "@/lib/types";
 
 interface SendBody {
@@ -51,15 +52,9 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as SendBody;
 
     // ----- validate recipients --------------------------------------------
-    const recipients = (body.to || [])
-      .map((s) => String(s).trim().toLowerCase())
-      .filter((s) => s.length > 0);
-    const invalid = recipients.filter((r) => !EMAIL_RE.test(r));
+    const recipients = parseRecipients(body.to || []).filter(isValidRecipient);
     if (recipients.length === 0) {
       throw badRequest("At least one recipient email is required");
-    }
-    if (invalid.length) {
-      throw badRequest(`Invalid email address(es): ${invalid.join(", ")}`);
     }
 
     // ----- resolve document → HTML ----------------------------------------

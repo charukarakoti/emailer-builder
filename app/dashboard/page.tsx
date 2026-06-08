@@ -62,7 +62,7 @@ export default function DashboardPage() {
 
   const maxBar = Math.max(
     1,
-    ...(data?.series.flatMap((p) => [p.delivered, p.opens]) || [0])
+    ...( (data?.series ?? []).flatMap((p) => [p.delivered, p.opens]) )
   );
 
   return (

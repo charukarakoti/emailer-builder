@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNotifications } from "@/components/NotificationProvider";
 import { useBuilder } from "@/lib/store";
 import { generateEmailHtml } from "@/lib/htmlGenerator";
@@ -321,18 +321,35 @@ function SendEmailDialog({
   const [success, setSuccess] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
 
-  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-  function parseRecipients(raw: string): string[] {
-    return raw
+  const parseRecipientsRef = useRef<(raw: any) => string[]>((raw: any) =>
+    String(raw || "")
       .split(/[\s,;]+/)
       .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
+      .filter(Boolean)
+  );
+  const isValidRecipientRef = useRef<(s: string) => boolean>((s: string) =>
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)
+  );
 
-  const parsed = parseRecipients(to);
-  const valid = parsed.filter((e) => EMAIL_RE.test(e));
-  const invalid = parsed.filter((e) => !EMAIL_RE.test(e));
+  useEffect(() => {
+    let mounted = true;
+    import("@/lib/email/recipients")
+      .then((m) => {
+        if (!mounted) return;
+        if (typeof m.parseRecipients === "function")
+          parseRecipientsRef.current = m.parseRecipients;
+        if (typeof m.isValidRecipient === "function")
+          isValidRecipientRef.current = m.isValidRecipient;
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const parsed = parseRecipientsRef.current(to);
+  const valid = parsed.filter(isValidRecipientRef.current);
+  const invalid = parsed.filter((e) => !isValidRecipientRef.current(e));
 
   async function send() {
     setInlineError(null);
@@ -430,7 +447,7 @@ function SendEmailDialog({
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 rows={3}
-                placeholder="alice@example.com, bob@example.com"
+                placeholder="alice@example.com, bob@example.com or Alice <alice@example.com>"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
               />
             </label>
@@ -577,6 +594,11 @@ export default function TopBar({
   // Send-email dialog state. The dialog calls POST /api/send with the
   // current canvas doc and a comma-separated recipient list.
   const [sendOpen, setSendOpen] = useState(false);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [pendingCampaignName, setPendingCampaignName] = useState<string | null>(null);
+  const [pendingCampaignSubject, setPendingCampaignSubject] = useState<string | null>(null);
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
+  const [savingCampaign, setSavingCampaign] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -661,6 +683,78 @@ export default function TopBar({
       } catch {
         notify("Unable to copy HTML", "error");
       }
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setCampaignId(params.get("campaign"));
+    setPendingCampaignName(params.get("campaignName"));
+    setPendingCampaignSubject(params.get("campaignSubject"));
+    setPendingTemplateId(params.get("template"));
+  }, []);
+
+  const handleSaveCampaign = async () => {
+    if (!campaignId) return;
+    setSavingCampaign(true);
+    try {
+      const response = await fetch(
+        `/api/campaigns/${encodeURIComponent(campaignId)}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            doc,
+            subject: doc.meta.subject || "",
+          }),
+        }
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to save campaign");
+      }
+      notify("Campaign draft saved", "success");
+    } catch (err: any) {
+      notify(err?.message || "Unable to save campaign", "error");
+    } finally {
+      setSavingCampaign(false);
+    }
+  };
+
+  const handleCreateCampaign = async () => {
+    // Create a new campaign from the current canvas/doc when the user arrived
+    // from the NewCampaignDialog (template flow) and no campaignId exists yet.
+    setSavingCampaign(true);
+    try {
+      const body: any = {
+        name: pendingCampaignName || "Untitled campaign",
+        subject: pendingCampaignSubject || doc.meta.subject || "",
+        templateId: pendingTemplateId || null,
+        doc,
+      };
+      const response = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Failed to create campaign");
+      const id = data.campaign?.id;
+      if (!id) throw new Error("No campaign id returned");
+      notify("Campaign created", "success");
+      // Update URL: remove campaignName/template params and set campaign id
+      const url = new URL(window.location.href);
+      url.searchParams.delete("campaignName");
+      url.searchParams.delete("campaignSubject");
+      url.searchParams.delete("template");
+      url.searchParams.set("campaign", id);
+      window.history.replaceState({}, "", url.toString());
+      setCampaignId(id);
+    } catch (err: any) {
+      notify(err?.message || "Unable to create campaign", "error");
+    } finally {
+      setSavingCampaign(false);
     }
   };
 
@@ -846,6 +940,26 @@ export default function TopBar({
             >
               Save
             </button>
+            {!campaignId && pendingCampaignName && (
+              <button
+                onClick={handleCreateCampaign}
+                disabled={savingCampaign}
+                className="h-9 inline-flex items-center gap-1 px-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition"
+                title="Create this campaign and save the current draft"
+              >
+                {savingCampaign ? "…" : "💾 Create"}
+              </button>
+            )}
+            {campaignId && (
+              <button
+                onClick={handleSaveCampaign}
+                disabled={savingCampaign}
+                className="h-9 inline-flex items-center gap-1 px-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition"
+                title="Save all changes to this campaign"
+              >
+                {savingCampaign ? "…" : "💾 Save"}
+              </button>
+            )}
           </div>
 
           <Divider />

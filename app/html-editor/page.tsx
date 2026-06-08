@@ -23,6 +23,8 @@ import AppShell, {
   PrimaryButton,
 } from "@/components/AppShell";
 import { formatHtml } from "@/lib/htmlFormat";
+// parseRecipients/isValidRecipient are imported dynamically below to avoid
+// runtime ReferenceErrors during HMR.
 import { pdfFileToHtml } from "@/lib/pdfToHtml";
 
 const LS_KEY = "email-builder:html-editor:v1";
@@ -505,13 +507,35 @@ function SendHtmlDialog({
   const [success, setSuccess] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
 
-  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-  const parsed = to
-    .split(/[\s,;]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const valid = parsed.filter((e) => EMAIL_RE.test(e));
-  const invalid = parsed.filter((e) => !EMAIL_RE.test(e));
+  const parseRecipientsRef = useRef<(raw: any) => string[]>((raw: any) =>
+    String(raw || "")
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+  const isValidRecipientRef = useRef<(s: string) => boolean>((s: string) =>
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    import("@/lib/email/recipients")
+      .then((m) => {
+        if (!mounted) return;
+        if (typeof m.parseRecipients === "function")
+          parseRecipientsRef.current = m.parseRecipients;
+        if (typeof m.isValidRecipient === "function")
+          isValidRecipientRef.current = m.isValidRecipient;
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const parsed = parseRecipientsRef.current(to);
+  const valid = parsed.filter(isValidRecipientRef.current);
+  const invalid = parsed.filter((e) => !isValidRecipientRef.current(e));
 
   async function send() {
     setInlineError(null);
@@ -611,7 +635,7 @@ function SendHtmlDialog({
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 rows={3}
-                placeholder="alice@example.com, bob@example.com"
+                placeholder="alice@example.com, bob@example.com or Alice <alice@example.com>"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
               />
             </label>
